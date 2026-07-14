@@ -1,16 +1,23 @@
-# Simulated video decode
+# Simulated media decode
 
 This fork adds an opt-in Chromium build mode that exercises the normal media
-pipeline without decoding compressed video pictures. It is intended for media
+pipeline without decoding compressed audio or video. It is intended for media
 workloads where demuxing, buffering, timing, seeking, end-of-stream behavior,
-audio, and browser APIs must keep working while video decode cost is removed.
+and browser APIs must keep working while decoded pixels and samples are not
+consumed.
 
-Set the GN argument `enable_simulated_video_decode=true` to enable it. The
-argument defaults to `false`; upstream behavior is unchanged in normal builds.
+The two independent GN arguments are:
+
+- `enable_simulated_video_decode=true` for null video decode and presentation;
+- `enable_simulated_audio_decode=true` for null audio decode and output.
+
+Both arguments default to `false`; upstream behavior is unchanged in normal
+builds. Enable both for the lowest media-playback CPU footprint, or only video
+when audible audio is required.
 
 ## What the mode does
 
-In a simulated build, `DefaultDecoderFactory` exposes only
+With simulated video enabled, `DefaultDecoderFactory` exposes only
 `NullVideoDecoder` for video. Each non-EOS compressed video buffer produces a
 black I420 `VideoFrame` with:
 
@@ -19,9 +26,23 @@ black I420 `VideoFrame` with:
 - the configured color space and HDR metadata.
 
 The decoder reuses its black backing frame and creates lightweight wrappers for
-individual timestamps. Audio decoder selection is unchanged. Demuxing,
-buffering, DRM decrypt-only operation, renderer scheduling, and compositing
-still occur.
+individual timestamps. `NullVideoSink` consumes those wrappers on the normal
+playback cadence before they reach Blink or Viz. Renderer timing, buffering,
+and end-of-stream behavior therefore remain intact without raster or
+compositor work for the video.
+
+With simulated audio enabled, `DefaultDecoderFactory` exposes only
+`NullAudioDecoder`. It ignores compressed payload bytes and emits
+`AudioBuffer::CreateEmptyBuffer()` results: the buffers preserve timestamps,
+duration, channel layout, sample rate, and discard padding but allocate no PCM.
+Unknown packet duration is inferred from the following timestamp. A
+`NullAudioSink` drives Chromium's normal audio clock without opening an output
+device or sending samples to the audio service. Output is always silent.
+
+Demuxing and buffering still occur for both streams. Container parsing is
+unaffected when audio and video share one file because demuxing separates them
+before decoder selection. DRM decrypt-only operation remains available where
+Chromium can supply clear buffers to the null decoders.
 
 The initial implementation covers the normal renderer media pipeline and
 WebCodecs. WebRTC's separate decoder factories and secure DRM modes that require
@@ -57,7 +78,7 @@ keeps its first build and link time manageable; increase it only when symbols
 are required.
 
 ```sh
-gn gen out/Simulated --args='is_debug=true is_component_build=true symbol_level=0 proprietary_codecs=true ffmpeg_branding="Chrome" enable_simulated_video_decode=true'
+gn gen out/Simulated --args='is_debug=true is_component_build=true symbol_level=0 proprietary_codecs=true ffmpeg_branding="Chrome" enable_simulated_video_decode=true enable_simulated_audio_decode=true'
 autoninja -C out/Simulated chrome media_unittests
 ```
 
@@ -65,7 +86,7 @@ Run the focused tests with:
 
 ```sh
 out/Simulated/media_unittests \
-  --gtest_filter='NullVideoDecoderTest.*:DefaultDecoderFactoryTest.*:SupportedTypesTest.*'
+  --gtest_filter='NullAudioDecoderTest.*:NullVideoDecoderTest.*:NullVideoSinkTest.*:DefaultDecoderFactoryTest.*:SupportedTypesTest.*'
 ```
 
 The filter intentionally includes the broader `SupportedTypesTest` suite so a
@@ -105,7 +126,7 @@ for a narrowly configured local checkout.
 ### 2. Generate and build
 
 ```sh
-gn gen out/SimulatedDeb --args='is_debug=false is_official_build=true is_component_build=false symbol_level=0 blink_symbol_level=0 proprietary_codecs=true ffmpeg_branding="Chrome" enable_simulated_video_decode=true enable_linux_installer=true'
+gn gen out/SimulatedDeb --args='is_debug=false is_official_build=true is_component_build=false symbol_level=0 blink_symbol_level=0 proprietary_codecs=true ffmpeg_branding="Chrome" enable_simulated_video_decode=true enable_simulated_audio_decode=true enable_linux_installer=true'
 autoninja -C out/SimulatedDeb chrome/installer/linux:unstable_deb
 ```
 
@@ -211,15 +232,17 @@ branch from the next stable tag and replay the patch.
 
 The patch is deliberately concentrated at stable media seams:
 
-- the GN argument and generated media build flag;
-- `NullVideoDecoder` and its unit tests;
+- the GN arguments and generated media build flags;
+- `NullVideoDecoder`, `NullAudioDecoder`, and their unit tests;
 - `DefaultDecoderFactory`, which controls normal renderer and WebCodecs decoder
   construction;
+- `RendererImplFactory`, which substitutes `NullVideoSink` and
+  `NullAudioSink`;
 - capability reporting and WebCodecs hardware-preference handling;
-- the persisted decoder-type histogram enum.
+- the persisted audio and video decoder-type histogram enums.
 
-Keeping demuxer, renderer, compositor, and platform decoder implementations out
-of the patch reduces the number of release-specific conflicts.
+Keeping demuxer, compositor, and platform decoder implementations out of the
+patch reduces the number of release-specific conflicts.
 
 ### Porting procedure
 
@@ -253,11 +276,11 @@ or older release can leave generated headers whose timestamps look current but
 whose declarations do not match the source checkout.
 
 ```sh
-gn gen out/Simulated-m<major> --args='is_debug=true is_component_build=true symbol_level=0 proprietary_codecs=true ffmpeg_branding="Chrome" enable_simulated_video_decode=true'
+gn gen out/Simulated-m<major> --args='is_debug=true is_component_build=true symbol_level=0 proprietary_codecs=true ffmpeg_branding="Chrome" enable_simulated_video_decode=true enable_simulated_audio_decode=true'
 autoninja -C out/Simulated-m<major> media_unittests
 
 out/Simulated-m<major>/media_unittests \
-  --gtest_filter='NullVideoDecoderTest.*:DefaultDecoderFactoryTest.*:SupportedTypesTest.*'
+  --gtest_filter='NullAudioDecoderTest.*:NullVideoDecoderTest.*:NullVideoSinkTest.*:DefaultDecoderFactoryTest.*:SupportedTypesTest.*'
 ```
 
 If an old directory must be reused, run `gn clean <output-directory>` before
@@ -274,7 +297,7 @@ python3 v8/tools/builtins-pgo/download_profiles.py download \
   --depot-tools third_party/depot_tools \
   --check-v8-revision --quiet
 
-gn gen out/SimulatedDeb-m<major> --args='is_debug=false is_official_build=true is_component_build=false symbol_level=0 blink_symbol_level=0 proprietary_codecs=true ffmpeg_branding="Chrome" enable_simulated_video_decode=true enable_linux_installer=true'
+gn gen out/SimulatedDeb-m<major> --args='is_debug=false is_official_build=true is_component_build=false symbol_level=0 blink_symbol_level=0 proprietary_codecs=true ffmpeg_branding="Chrome" enable_simulated_video_decode=true enable_simulated_audio_decode=true enable_linux_installer=true'
 autoninja -C out/SimulatedDeb-m<major> chrome/installer/linux:unstable_deb
 ```
 
@@ -283,17 +306,18 @@ autoninja -C out/SimulatedDeb-m<major> chrome/installer/linux:unstable_deb
 Before treating the port as releasable:
 
 1. Confirm `chrome/VERSION` matches the intended stable tag.
-2. Confirm the focused 40-test filter passes.
+2. Confirm the focused null audio/video and capability filter passes.
 3. Build the official package with revision-matched Chrome and V8 PGO data.
 4. Launch the exact packaged binary, not an older browser on `PATH`.
-5. Verify clear MP4 playback, seeking, EOS, audio, and more than one coded and
-   natural video size.
+5. Verify clear MP4 and WebM playback, seeking, EOS, silence, and more than one
+   coded and natural video size. Run a video-only build separately when audible
+   audio is required.
 6. Verify WebCodecs and `<video>` capability reporting for required codecs.
 7. Open DevTools during a direct-media test. Treat page-specific synchronous
    layout or JavaScript loops separately from decoder/compositor failures.
 8. Confirm encrypted content separately if decrypt-only DRM is required.
-9. Run a normal build with `enable_simulated_video_decode=false` when upstream
-   media APIs changed materially.
+9. Run a normal build with both simulated flags disabled when upstream media
+   APIs changed materially.
 10. Record the stable tag, patch commit, package filename, and checksum in the
     release notes.
 
@@ -308,4 +332,4 @@ workarounds.
 - `simulated-video-decode-m152` preserves the original tip-of-tree development
   implementation for comparison; it is not the release base.
 
-The M150 focused media test filter passes all 40 selected tests.
+The M150 combined focused media filter passes all 51 selected tests.

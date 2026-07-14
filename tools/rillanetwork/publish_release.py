@@ -120,7 +120,7 @@ def generated_notes(tag: str, artifact: Path, digest: str) -> str:
             package_lines.append(f"- {key}: `{metadata[key]}`")
     return "\n".join(
         [
-            f"Simulated-video Chromium build based on upstream `{version}`.",
+            f"Simulated-media Chromium build based on upstream `{version}`.",
             "",
             "## Package",
             "",
@@ -181,7 +181,7 @@ def main() -> int:
     notes = generated_notes(tag, artifact, digest)
     if args.notes_file:
         notes += "\n\n" + args.notes_file.read_text(encoding="utf-8").strip() + "\n"
-    title = args.title or f"Simulated video decode for Chromium {version}"
+    title = args.title or f"Simulated media decode for Chromium {version}"
 
     print(f"Tag: {tag}")
     print(f"Artifact: {artifact}")
