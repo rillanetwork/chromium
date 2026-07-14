@@ -119,6 +119,78 @@ find out/SimulatedDeb -maxdepth 1 -name '*.deb' -print
 Disabling PGO with `chrome_pgo_phase=0` is possible, but it produces a less
 representative performance build and is not the recommended release process.
 
+## Automated release workflow
+
+Two standard-library Python scripts turn the manual steps below into a local
+release workflow. They deliberately do not hide Git conflicts or publish from
+CI.
+
+### Prepare a release
+
+Run the preparation script while checked out on the previous known-good fork
+branch:
+
+```sh
+python3 tools/rillanetwork/prepare_release.py 151.0.0.0 --dry-run
+python3 tools/rillanetwork/prepare_release.py <new-stable-version>
+```
+
+`prepare_release.py`:
+
+1. finds the nearest numeric Chromium tag behind the source ref;
+2. treats every commit above that tag as the ordered fork patch stack;
+3. fetches the requested stable tag and creates
+   `simulated-video-decode-m<major>` from it;
+4. cherry-picks the patch stack;
+5. runs `gclient sync`, focused tests, both PGO downloads, and the official
+   Debian package build in exact-version output directories;
+6. writes a SHA-256 sidecar and creates the annotated local tag
+   `v<chromium-version>-simulated.1`.
+
+Use `--source-ref` or `--source-base` when preparing from something other than
+the current branch. If a cherry-pick conflicts, the script stops without
+discarding work. Resolve it, run `git cherry-pick --continue`, commit any
+release-specific fix, and restart the remaining workflow with:
+
+```sh
+python3 tools/rillanetwork/prepare_release.py <new-stable-version> \
+  --reuse-branch
+```
+
+The script accepts `--skip-sync`, `--skip-tests`, `--skip-pgo-download`,
+`--skip-package`, and `--skip-tag` for recovery or advanced use. Supplying
+`--artifact` with `--skip-package` lets it checksum and tag an already completed
+package. It refuses to switch branches or tag while tracked changes are
+present; unrelated untracked files are left alone.
+
+### Publish a GitHub release
+
+After inspecting the package and local tag:
+
+```sh
+python3 tools/rillanetwork/publish_release.py \
+  out/SimulatedDeb-<version>/<package>.deb \
+  --tag v<version>-simulated.1 \
+  --push-branch \
+  --dry-run
+
+python3 tools/rillanetwork/publish_release.py \
+  out/SimulatedDeb-<version>/<package>.deb \
+  --tag v<version>-simulated.1 \
+  --push-branch
+```
+
+`publish_release.py` verifies that the annotated tag exists, reads the Chromium
+version at that tag, checks that it matches the artifact name, extracts Debian
+package metadata, recomputes SHA-256, and generates release notes from the fork
+patch stack. It then authenticates `gh`, refuses to overwrite an existing
+release, optionally pushes the current branch, pushes the exact tag, and
+uploads both the `.deb` and checksum file.
+
+Use `--draft` for a GitHub draft release or `--prerelease` for a visible
+prerelease. The default repository is `rillanetwork/chromium`; override it with
+`--repo` when testing against another fork.
+
 ## Maintaining the patch across Chromium releases
 
 ### Branch model
@@ -230,7 +302,7 @@ not inherently version-specific, fold it back into the logical patch used for
 the next cherry-pick so the patchset does not grow into a chain of historical
 workarounds.
 
-## Current release branches
+## Initial validated release
 
 - `simulated-video-decode-m150` is based on Chromium `150.0.7871.114`.
 - `simulated-video-decode-m152` preserves the original tip-of-tree development

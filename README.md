@@ -47,6 +47,20 @@ autoninja -C out/SimulatedDeb chrome/installer/linux:unstable_deb
 Use a fresh, versioned output directory when changing Chromium releases; build
 outputs and generated headers are not portable between release branches.
 
+### Automated release workflow
+
+The local release scripts replay the current branch's fork commits onto a new
+Chromium tag, build and tag the result, then publish the `.deb` with `gh`:
+
+```sh
+python3 tools/rillanetwork/prepare_release.py <chromium-version>
+python3 tools/rillanetwork/publish_release.py <path-to-deb> \
+  --tag <release-tag> --push-branch
+```
+
+Both commands support `--dry-run`. See the maintenance guide for their safety
+checks, resume options, tag convention, and complete examples.
+
 Chromium is an open-source browser project that aims to build a safer, faster,
 and more stable way for all users to experience the web.
 
