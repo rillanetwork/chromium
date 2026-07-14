@@ -73,6 +73,7 @@ namespace blink {
 
 namespace {
 
+#if !BUILDFLAG(ENABLE_SIMULATED_VIDEO_DECODE)
 void DecoderSupport_OnKnown(
     VideoDecoderSupport* support,
     std::unique_ptr<VideoDecoder::MediaConfigType> media_config,
@@ -90,6 +91,7 @@ void DecoderSupport_OnKnown(
       media::GpuVideoAcceleratorFactories::Supported::kTrue);
   resolver->Resolve(support);
 }
+#endif
 
 bool ParseCodecString(const String& codec_string,
                       media::VideoType& out_video_type,
@@ -296,13 +298,19 @@ ScriptPromise<VideoDecoderSupport> VideoDecoder::isConfigSupported(
   auto* config_copy = CopyConfig(*config);
 
   // Run the "Check Configuration Support" algorithm.
+#if !BUILDFLAG(ENABLE_SIMULATED_VIDEO_DECODE)
   HardwarePreference hw_pref = GetHardwareAccelerationPreference(*config_copy);
+#endif
   VideoDecoderSupport* support = VideoDecoderSupport::Create();
   support->setConfig(config_copy);
 
+#if BUILDFLAG(ENABLE_SIMULATED_VIDEO_DECODE)
+  if (!media::IsDecoderSupportedVideoType(*video_type)) {
+#else
   if ((hw_pref == HardwarePreference::kPreferSoftware &&
        !media::IsDecoderBuiltInVideoCodec(video_type->codec)) ||
       !media::IsDecoderSupportedVideoType(*video_type)) {
+#endif
     support->setSupported(false);
     return ToResolvedPromise<VideoDecoderSupport>(script_state, support);
   }
@@ -317,6 +325,7 @@ ScriptPromise<VideoDecoderSupport> VideoDecoder::isConfigSupported(
   }
 
   // If hardware is preferred, asynchronously check for a hardware decoder.
+#if !BUILDFLAG(ENABLE_SIMULATED_VIDEO_DECODE)
   if (hw_pref == HardwarePreference::kPreferHardware) {
     auto* resolver =
         MakeGarbageCollected<ScriptPromiseResolver<VideoDecoderSupport>>(
@@ -328,6 +337,7 @@ ScriptPromise<VideoDecoderSupport> VideoDecoder::isConfigSupported(
         MakeUnwrappingCrossThreadHandle(resolver)));
     return promise;
   }
+#endif
 
   // Otherwise, the config is supported.
   support->setSupported(true);
@@ -336,6 +346,10 @@ ScriptPromise<VideoDecoderSupport> VideoDecoder::isConfigSupported(
 
 HardwarePreference VideoDecoder::GetHardwarePreference(
     const ConfigType& config) {
+#if BUILDFLAG(ENABLE_SIMULATED_VIDEO_DECODE)
+  // The simulated decoder is deliberately selected for every preference.
+  return HardwarePreference::kNoPreference;
+#else
   auto config_pref = GetHardwareAccelerationPreference(config);
   if (decoder_specific_data_.decoder_helper &&
       decoder_specific_data_.decoder_helper->RequiresSoftwareDecoder()) {
@@ -345,6 +359,7 @@ HardwarePreference VideoDecoder::GetHardwarePreference(
     return HardwarePreference::kPreferSoftware;
   }
   return config_pref;
+#endif
 }
 
 bool VideoDecoder::GetLowDelayPreference(const ConfigType& config) {

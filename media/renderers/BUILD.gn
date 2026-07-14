@@ -131,6 +131,10 @@ source_set("unit_tests") {
     "video_renderer_impl_unittest.cc",
     "video_resource_updater_unittest.cc",
   ]
+
+  if (enable_simulated_video_decode) {
+    sources += [ "default_decoder_factory_unittest.cc" ]
+  }
   configs += [ "//media:media_config" ]
   deps = [
     "//base",
