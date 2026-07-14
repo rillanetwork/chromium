@@ -59,6 +59,8 @@ const char* GetDecoderName(VideoDecoderType type) {
       return "OOPVideoDecoder";
     case VideoDecoderType::kVideoToolbox:
       return "VideoToolboxVideoDecoder";
+    case VideoDecoderType::kNull:
+      return "NullVideoDecoder";
   }
 }
 

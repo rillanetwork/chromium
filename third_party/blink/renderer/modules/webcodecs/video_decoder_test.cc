@@ -10,6 +10,7 @@
 #include "media/base/decoder_buffer.h"
 #include "media/base/mock_filters.h"
 #include "media/base/video_frame.h"
+#include "media/media_buildflags.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/blink/public/platform/scheduler/test/renderer_scheduler_test_support.h"
@@ -296,6 +297,24 @@ TEST_F(VideoDecoderTest, isConfigureSupportedWithInvalidHWConfig) {
   auto* result = ToVideoDecoderSupport(&v8_scope, tester.Value());
   EXPECT_FALSE(result->supported());
 }
+
+#if BUILDFLAG(ENABLE_SIMULATED_VIDEO_DECODE)
+TEST_F(VideoDecoderTest, IsConfigSupportedIgnoresHardwarePreference) {
+  V8TestingScope v8_scope;
+
+  auto* config = CreateVideoConfig();
+  config->setHardwareAcceleration(V8HardwarePreference::Enum::kPreferHardware);
+  auto promise = VideoDecoder::isConfigSupported(
+      v8_scope.GetScriptState(), config, v8_scope.GetExceptionState());
+  ASSERT_FALSE(v8_scope.GetExceptionState().HadException());
+
+  ScriptPromiseTester tester(v8_scope.GetScriptState(), promise);
+  tester.WaitUntilSettled();
+  ASSERT_TRUE(tester.IsFulfilled());
+  auto* result = ToVideoDecoderSupport(&v8_scope, tester.Value());
+  EXPECT_TRUE(result->supported());
+}
+#endif
 
 TEST_F(VideoDecoderTest, ConfigureGeneratesConfigChangeEOS) {
   V8TestingScope v8_scope;

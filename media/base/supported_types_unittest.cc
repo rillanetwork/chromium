@@ -8,6 +8,7 @@
 #include "build/build_config.h"
 #include "media/base/media_switches.h"
 #include "media/base/media_util.h"
+#include "media/media_buildflags.h"
 #include "media/mojo/buildflags.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -60,8 +61,9 @@ TEST(SupportedTypesTest, IsDecoderSupportedVideoTypeBasics) {
                                             VIDEO_CODEC_PROFILE_UNKNOWN,
                                             kUnspecifiedLevel, kColorSpace}));
 
-#if BUILDFLAG(ENABLE_PLATFORM_HEVC) && \
-    !BUILDFLAG(PLATFORM_HAS_OPTIONAL_HEVC_DECODE_SUPPORT)
+#if BUILDFLAG(ENABLE_PLATFORM_HEVC) &&           \
+    (BUILDFLAG(ENABLE_SIMULATED_VIDEO_DECODE) || \
+     !BUILDFLAG(PLATFORM_HAS_OPTIONAL_HEVC_DECODE_SUPPORT))
   EXPECT_TRUE(IsDecoderSupportedVideoType({VideoCodec::kHEVC,
                                            VIDEO_CODEC_PROFILE_UNKNOWN,
                                            kUnspecifiedLevel, kColorSpace}));

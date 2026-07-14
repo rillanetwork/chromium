@@ -233,8 +233,11 @@ bool IsDecoderHevcProfileSupported(const VideoType& type) {
     return false;
   }
 
-#if BUILDFLAG(ENABLE_PLATFORM_HEVC)
-#if BUILDFLAG(PLATFORM_HAS_OPTIONAL_HEVC_DECODE_SUPPORT)
+#if !BUILDFLAG(ENABLE_PLATFORM_HEVC)
+  return false;
+#elif BUILDFLAG(ENABLE_SIMULATED_VIDEO_DECODE)
+  return true;
+#elif BUILDFLAG(PLATFORM_HAS_OPTIONAL_HEVC_DECODE_SUPPORT)
 #if BUILDFLAG(IS_CHROMEOS)
   if (!base::FeatureList::IsEnabled(kPlatformHEVCDecoderSupport)) {
     return false;
@@ -245,9 +248,6 @@ bool IsDecoderHevcProfileSupported(const VideoType& type) {
 #else
   return true;
 #endif  // BUIDFLAG(PLATFORM_HAS_OPTIONAL_HEVC_DECODE_SUPPORT)
-#else
-  return false;
-#endif  // BUILDFLAG(ENABLE_PLATFORM_HEVC)
 }
 
 bool IsDecoderVp9ProfileSupported(const VideoType& type) {

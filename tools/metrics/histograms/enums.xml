@@ -28643,6 +28643,7 @@ Called by update_net_error_codes.py.-->
   <int value="16" label="V4l2 Video Decoder"/>
   <int value="18" label="OOP Video Decoder"/>
   <int value="19" label="VideoToolbox Video Decoder"/>
+  <int value="20" label="Null Video Decoder"/>
 </enum>
 
 <enum name="VideoEncoderUseCase">
