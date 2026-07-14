@@ -7,7 +7,7 @@
 #include "base/functional/bind.h"
 #include "base/functional/callback_helpers.h"
 #include "base/location.h"
-#include "base/task/single_thread_task_runner.h"
+#include "base/task/sequenced_task_runner.h"
 
 namespace media {
 
@@ -15,7 +15,7 @@ NullVideoSink::NullVideoSink(
     bool clockless,
     base::TimeDelta interval,
     const NewFrameCB& new_frame_cb,
-    const scoped_refptr<base::SingleThreadTaskRunner>& task_runner)
+    const scoped_refptr<base::SequencedTaskRunner>& task_runner)
     : clockless_(clockless),
       interval_(interval),
       new_frame_cb_(new_frame_cb),
@@ -30,7 +30,7 @@ NullVideoSink::~NullVideoSink() {
 }
 
 void NullVideoSink::Start(RenderCallback* callback) {
-  DCHECK(task_runner_->BelongsToCurrentThread());
+  DCHECK(task_runner_->RunsTasksInCurrentSequence());
   DCHECK(!started_);
   callback_ = callback;
   started_ = true;
@@ -41,15 +41,16 @@ void NullVideoSink::Start(RenderCallback* callback) {
 }
 
 void NullVideoSink::Stop() {
-  DCHECK(task_runner_->BelongsToCurrentThread());
+  DCHECK(task_runner_->RunsTasksInCurrentSequence());
   cancelable_worker_.Cancel();
   started_ = false;
-  if (stop_cb_)
+  if (stop_cb_) {
     std::move(stop_cb_).Run();
+  }
 }
 
 void NullVideoSink::CallRender() {
-  DCHECK(task_runner_->BelongsToCurrentThread());
+  DCHECK(task_runner_->RunsTasksInCurrentSequence());
   DCHECK(started_);
 
   if (render_cb_) {
@@ -65,8 +66,9 @@ void NullVideoSink::CallRender() {
   DCHECK(new_frame);
   const bool is_new_frame = new_frame != last_frame_;
   last_frame_ = new_frame;
-  if (is_new_frame && new_frame_cb_)
+  if (is_new_frame && new_frame_cb_) {
     new_frame_cb_.Run(new_frame);
+  }
 
   current_render_time_ += interval_;
 
@@ -84,8 +86,9 @@ void NullVideoSink::CallRender() {
   } else {
     // If we're behind, find the next nearest on time interval.
     delay = current_render_time_ - now;
-    if (delay.is_negative())
+    if (delay.is_negative()) {
       delay = interval_ + (delay % interval_);
+    }
     current_render_time_ = now + delay;
     last_now_ = now;
   }
@@ -96,12 +99,14 @@ void NullVideoSink::CallRender() {
 
 void NullVideoSink::PaintSingleFrame(scoped_refptr<VideoFrame> frame,
                                      bool repaint_duplicate_frame) {
-  if (!repaint_duplicate_frame && frame == last_frame_)
+  if (!repaint_duplicate_frame && frame == last_frame_) {
     return;
+  }
 
   last_frame_ = frame;
-  if (new_frame_cb_)
+  if (new_frame_cb_) {
     new_frame_cb_.Run(std::move(frame));
+  }
 }
 
 }  // namespace media

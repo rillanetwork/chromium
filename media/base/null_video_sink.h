@@ -14,7 +14,7 @@
 #include "media/base/video_renderer_sink.h"
 
 namespace base {
-class SingleThreadTaskRunner;
+class SequencedTaskRunner;
 }
 
 namespace media {
@@ -30,7 +30,7 @@ class MEDIA_EXPORT NullVideoSink : public VideoRendererSink {
   NullVideoSink(bool clockless,
                 base::TimeDelta interval,
                 const NewFrameCB& new_frame_cb,
-                const scoped_refptr<base::SingleThreadTaskRunner>& task_runner);
+                const scoped_refptr<base::SequencedTaskRunner>& task_runner);
 
   NullVideoSink(const NullVideoSink&) = delete;
   NullVideoSink& operator=(const NullVideoSink&) = delete;
@@ -70,7 +70,7 @@ class MEDIA_EXPORT NullVideoSink : public VideoRendererSink {
   bool clockless_;
   const base::TimeDelta interval_;
   const NewFrameCB new_frame_cb_;
-  scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
+  scoped_refptr<base::SequencedTaskRunner> task_runner_;
 
   bool started_;
   raw_ptr<RenderCallback, AcrossTasksDanglingUntriaged> callback_;

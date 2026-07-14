@@ -12,6 +12,7 @@
 #include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
 #include "media/base/audio_decoder.h"
+#include "media/base/decoder.h"
 #include "media/base/media_switches.h"
 #include "media/base/media_util.h"
 #include "media/base/video_decoder.h"
@@ -38,6 +39,7 @@ class DefaultDecoderFactoryTest : public testing::Test {
   NullMediaLog media_log_;
 };
 
+#if BUILDFLAG(ENABLE_IAMF_DECODER) && !BUILDFLAG(ENABLE_SIMULATED_AUDIO_DECODE)
 TEST_F(DefaultDecoderFactoryTest, IamfDecoderTracksFeatureState) {
   {
     base::test::ScopedFeatureList scoped_feature_list;
@@ -52,9 +54,10 @@ TEST_F(DefaultDecoderFactoryTest, IamfDecoderTracksFeatureState) {
   }
 }
 
+#endif
+
 #if BUILDFLAG(ENABLE_SIMULATED_VIDEO_DECODE)
 TEST_F(DefaultDecoderFactoryTest, SimulatedBuildExposesOnlyNullVideoDecoder) {
-  base::test::SingleThreadTaskEnvironment task_environment;
   NullMediaLog media_log;
   DefaultDecoderFactory factory(/*external_decoder_factory=*/nullptr);
   std::vector<std::unique_ptr<VideoDecoder>> decoders;
@@ -65,6 +68,22 @@ TEST_F(DefaultDecoderFactoryTest, SimulatedBuildExposesOnlyNullVideoDecoder) {
 
   ASSERT_EQ(decoders.size(), 1u);
   EXPECT_EQ(decoders.front()->GetDecoderType(), VideoDecoderType::kNull);
+  EXPECT_FALSE(decoders.front()->IsPlatformDecoder());
+  EXPECT_FALSE(decoders.front()->SupportsDecryption());
+}
+#endif
+
+#if BUILDFLAG(ENABLE_SIMULATED_AUDIO_DECODE)
+TEST_F(DefaultDecoderFactoryTest, SimulatedBuildExposesOnlyNullAudioDecoder) {
+  NullMediaLog media_log;
+  DefaultDecoderFactory factory(/*external_decoder_factory=*/nullptr);
+  std::vector<std::unique_ptr<AudioDecoder>> decoders;
+
+  factory.CreateAudioDecoders(base::SequencedTaskRunner::GetCurrentDefault(),
+                              &media_log, &decoders);
+
+  ASSERT_EQ(decoders.size(), 1u);
+  EXPECT_EQ(decoders.front()->GetDecoderType(), AudioDecoderType::kNull);
   EXPECT_FALSE(decoders.front()->IsPlatformDecoder());
   EXPECT_FALSE(decoders.front()->SupportsDecryption());
 }

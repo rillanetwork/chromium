@@ -40,6 +40,10 @@
 #include "media/filters/ffmpeg_video_decoder.h"
 #endif
 
+#if BUILDFLAG(ENABLE_SIMULATED_AUDIO_DECODE)
+#include "media/filters/null_audio_decoder.h"
+#endif
+
 #if BUILDFLAG(ENABLE_SIMULATED_VIDEO_DECODE)
 #include "media/filters/null_video_decoder.h"
 #endif
@@ -69,9 +73,13 @@ void DefaultDecoderFactory::CreateAudioDecoders(
     MediaLog* media_log,
     std::vector<std::unique_ptr<AudioDecoder>>* audio_decoders) {
   base::AutoLock auto_lock(shutdown_lock_);
-  if (is_shutdown_)
+  if (is_shutdown_) {
     return;
+  }
 
+#if BUILDFLAG(ENABLE_SIMULATED_AUDIO_DECODE)
+  audio_decoders->push_back(std::make_unique<NullAudioDecoder>());
+#else
 #if !BUILDFLAG(IS_ANDROID)
   // DecryptingAudioDecoder is only needed in External Clear Key testing to
   // cover the audio decrypt-and-decode path.
@@ -116,6 +124,7 @@ void DefaultDecoderFactory::CreateAudioDecoders(
     external_decoder_factory_->CreateAudioDecoders(task_runner, media_log,
                                                    audio_decoders);
   }
+#endif  // BUILDFLAG(ENABLE_SIMULATED_AUDIO_DECODE)
 }
 
 void DefaultDecoderFactory::CreateVideoDecoders(

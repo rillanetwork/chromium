@@ -115,6 +115,10 @@ declare_args() {
   # lightweight decoder that emits synthetic black frames.
   enable_simulated_video_decode = false
 
+  # Replace all audio decoders created by DefaultDecoderFactory with a
+  # lightweight decoder that emits silent, allocation-free audio buffers.
+  enable_simulated_audio_decode = false
+
   # Enable browser managed persistent metadata storage for EME persistent
   # session.
   enable_media_drm_storage = is_android || is_castos

@@ -17,17 +17,19 @@ SRC_ROOT = Path(__file__).resolve().parents[2]
 CHECKOUT_ROOT = SRC_ROOT.parent
 VERSION_RE = re.compile(r"^(\d+)\.\d+\.\d+\.\d+$")
 TEST_FILTER = (
-    "NullVideoDecoderTest.*:DefaultDecoderFactoryTest.*:SupportedTypesTest.*"
+    "NullAudioDecoderTest.*:NullVideoDecoderTest.*:NullVideoSinkTest.*:"
+    "DefaultDecoderFactoryTest.*:SupportedTypesTest.*"
 )
 DEV_ARGS = (
     'is_debug=true is_component_build=true symbol_level=0 '
     'proprietary_codecs=true ffmpeg_branding="Chrome" '
-    "enable_simulated_video_decode=true"
+    "enable_simulated_video_decode=true enable_simulated_audio_decode=true"
 )
 RELEASE_ARGS = (
     "is_debug=false is_official_build=true is_component_build=false "
     "symbol_level=0 blink_symbol_level=0 proprietary_codecs=true "
     'ffmpeg_branding="Chrome" enable_simulated_video_decode=true '
+    "enable_simulated_audio_decode=true "
     "enable_linux_installer=true"
 )
 
@@ -308,7 +310,7 @@ def main() -> int:
             raise ReleaseError(f"local tag already exists: {tag}")
         require_clean_tracked_worktree()
         message = (
-            f"Simulated video decode for Chromium {args.version}\n\n"
+            f"Simulated media decode for Chromium {args.version}\n\n"
             f"Artifact: {artifact.name}\n"
             f"SHA256: {checksum}"
         )

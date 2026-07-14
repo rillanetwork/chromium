@@ -139,6 +139,13 @@ source_set("filters") {
     ]
   }
 
+  if (enable_simulated_audio_decode) {
+    sources += [
+      "null_audio_decoder.cc",
+      "null_audio_decoder.h",
+    ]
+  }
+
   if (proprietary_codecs) {
     sources += [
       "h264_to_annex_b_bitstream_converter.cc",
@@ -392,6 +399,10 @@ source_set("unit_tests") {
 
   if (enable_simulated_video_decode) {
     sources += [ "null_video_decoder_unittest.cc" ]
+  }
+
+  if (enable_simulated_audio_decode) {
+    sources += [ "null_audio_decoder_unittest.cc" ]
   }
 
   if (is_android) {

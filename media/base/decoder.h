@@ -30,9 +30,10 @@ enum class AudioDecoderType : int {
   kSymphonia = 10,       // Symphonia Rust-backed SymphoniaAudioDecoder.
   kOpus = 11,            // OpusAudioDecoder
   kIamf = 12,            // IAMFDecoder
+  kNull = 13,            // NullAudioDecoder
 
   // Keep this at the end and equal to the last entry.
-  kMaxValue = kIamf,
+  kMaxValue = kNull,
 };
 
 // List of known VideoDecoder implementations; recorded to UKM, always add new
