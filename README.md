@@ -1,5 +1,72 @@
 # ![Logo](chrome/app/theme/chromium/product_logo_64.png) Chromium
 
+## Rillanetwork simulated media fork
+
+This fork provides two independent GN options:
+
+- `enable_simulated_video_decode=true` skips compressed video decode and
+  consumes synthetic frames before they reach Blink/Viz;
+- `enable_simulated_audio_decode=true` skips compressed audio decode, emits
+  allocation-free silent buffers, and uses a null output sink.
+
+Chromium still demuxes media and advances the normal media timeline. Both
+options default to `false`, so ordinary Chromium builds are unchanged. Release
+builds normally enable both options; enable only the video option when audible
+audio is required.
+
+For the architecture, limitations, complete build instructions, and the process
+for moving the patch to a new Chromium stable release, see
+[Simulated video decode](docs/simulated_video_decode.md).
+
+### Quick start (Linux development build)
+
+From a complete `gclient` checkout with this branch checked out:
+
+```sh
+gclient sync
+cd src
+
+gn gen out/Simulated --args='is_debug=true is_component_build=true symbol_level=0 proprietary_codecs=true ffmpeg_branding="Chrome" enable_simulated_video_decode=true enable_simulated_audio_decode=true'
+autoninja -C out/Simulated chrome media_unittests
+
+out/Simulated/media_unittests \
+  --gtest_filter='NullAudioDecoderTest.*:NullVideoDecoderTest.*:NullVideoSinkTest.*:DefaultDecoderFactoryTest.*:SupportedTypesTest.*'
+```
+
+### Quick start (optimized Debian package)
+
+Official builds need both the Chrome and V8 PGO profiles for the checked-out
+revision. Refresh both after changing Chromium versions:
+
+```sh
+python3 tools/update_pgo_profiles.py \
+  --target=linux update \
+  --gs-url-base=chromium-optimization-profiles/pgo_profiles
+python3 v8/tools/builtins-pgo/download_profiles.py download \
+  --depot-tools third_party/depot_tools \
+  --check-v8-revision --quiet
+
+gn gen out/SimulatedDeb --args='is_debug=false is_official_build=true is_component_build=false symbol_level=0 blink_symbol_level=0 proprietary_codecs=true ffmpeg_branding="Chrome" enable_simulated_video_decode=true enable_simulated_audio_decode=true enable_linux_installer=true'
+autoninja -C out/SimulatedDeb chrome/installer/linux:unstable_deb
+```
+
+Use a fresh, versioned output directory when changing Chromium releases; build
+outputs and generated headers are not portable between release branches.
+
+### Automated release workflow
+
+The local release scripts replay the current branch's fork commits onto a new
+Chromium tag, build and tag the result, then publish the `.deb` with `gh`:
+
+```sh
+python3 tools/rillanetwork/prepare_release.py <chromium-version>
+python3 tools/rillanetwork/publish_release.py <path-to-deb> \
+  --tag <release-tag> --push-branch
+```
+
+Both commands support `--dry-run`. See the maintenance guide for their safety
+checks, resume options, tag convention, and complete examples.
+
 Chromium is an open-source browser project that aims to build a safer, faster,
 and more stable way for all users to experience the web.
 

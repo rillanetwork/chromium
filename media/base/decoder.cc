@@ -56,6 +56,8 @@ const char* GetDecoderName(VideoDecoderType type) {
       return "OOPVideoDecoder";
     case VideoDecoderType::kVideoToolbox:
       return "VideoToolboxVideoDecoder";
+    case VideoDecoderType::kNull:
+      return "NullVideoDecoder";
   }
 }
 
@@ -85,6 +87,8 @@ const char* GetDecoderName(AudioDecoderType type) {
       return "SymphoniaAudioDecoder";
     case AudioDecoderType::kOpus:
       return "OpusAudioDecoder";
+    case AudioDecoderType::kNull:
+      return "NullAudioDecoder";
   }
 }
 
