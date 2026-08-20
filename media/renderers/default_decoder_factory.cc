@@ -73,9 +73,8 @@ void DefaultDecoderFactory::CreateAudioDecoders(
     MediaLog* media_log,
     std::vector<std::unique_ptr<AudioDecoder>>* audio_decoders) {
   base::AutoLock auto_lock(shutdown_lock_);
-  if (is_shutdown_) {
+  if (is_shutdown_)
     return;
-  }
 
 #if BUILDFLAG(ENABLE_SIMULATED_AUDIO_DECODE)
   audio_decoders->push_back(std::make_unique<NullAudioDecoder>());

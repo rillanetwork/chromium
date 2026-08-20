@@ -131,9 +131,8 @@ std::unique_ptr<Renderer> RendererImplFactory::CreateRenderer(
 #endif
 
   GpuVideoAcceleratorFactories* gpu_factories = nullptr;
-  if (get_gpu_factories_cb_) {
+  if (get_gpu_factories_cb_)
     gpu_factories = get_gpu_factories_cb_.Run();
-  }
 
   std::unique_ptr<MappableSharedImageVideoFramePool> mappable_si_pool;
   if (gpu_factories &&
