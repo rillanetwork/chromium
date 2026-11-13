@@ -342,9 +342,10 @@ The local `simulated-video-decode-m158` port is based on Chromium
 It replays the five M150 fork commits; it does not use the fork's moving `main`.
 
 M158 adds upstream IAMF decoder tests and assigns audio decoder enum value 12
-to IAMF. The port retains that upstream value and uses 13 for the null audio
-decoder, with a matching histogram entry. M150's null audio value was 12;
-telemetry from the two custom releases must be interpreted with their version.
+to IAMF. That value is already persisted by this fork's released null audio
+decoder. The port preserves null audio at 12 and assigns the newly introduced
+IAMF decoder value 13, with matching histogram entries. These fork telemetry
+IDs differ from stock Chromium; previously shipped fork IDs remain stable.
 The decoder-factory tests retain the upstream IAMF coverage for normal audio
 builds and check the null decoder in simulated audio builds. The test source
 is included once when either IAMF or simulated decoding is enabled.

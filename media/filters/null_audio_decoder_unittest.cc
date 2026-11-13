@@ -85,6 +85,8 @@ TEST_F(NullAudioDecoderTest, AcceptsClearAudioConfig) {
   Initialize(TestAudioConfig::Normal(), DecoderStatus::Codes::kOk);
 
   EXPECT_EQ(decoder_.GetDecoderType(), AudioDecoderType::kNull);
+  // This ID was shipped in the M150 releases and is persisted in telemetry.
+  EXPECT_EQ(static_cast<int>(decoder_.GetDecoderType()), 12);
   EXPECT_FALSE(decoder_.IsPlatformDecoder());
   EXPECT_FALSE(decoder_.SupportsDecryption());
 }

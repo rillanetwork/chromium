@@ -29,11 +29,11 @@ enum class AudioDecoderType : int {
   kPassthroughDTS = 9,   // Passthrough DTS audio
   kSymphonia = 10,       // Symphonia Rust-backed SymphoniaAudioDecoder.
   kOpus = 11,            // OpusAudioDecoder
-  kIamf = 12,            // IAMFDecoder
-  kNull = 13,            // NullAudioDecoder
+  kNull = 12,            // NullAudioDecoder (persisted since the M150 fork).
+  kIamf = 13,            // IAMFDecoder (upstream uses 12).
 
   // Keep this at the end and equal to the last entry.
-  kMaxValue = kNull,
+  kMaxValue = kIamf,
 };
 
 // List of known VideoDecoder implementations; recorded to UKM, always add new
