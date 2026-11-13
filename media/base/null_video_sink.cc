@@ -7,7 +7,7 @@
 #include "base/functional/bind.h"
 #include "base/functional/callback_helpers.h"
 #include "base/location.h"
-#include "base/task/single_thread_task_runner.h"
+#include "base/task/sequenced_task_runner.h"
 
 namespace media {
 
@@ -15,7 +15,7 @@ NullVideoSink::NullVideoSink(
     bool clockless,
     base::TimeDelta interval,
     const NewFrameCB& new_frame_cb,
-    const scoped_refptr<base::SingleThreadTaskRunner>& task_runner)
+    const scoped_refptr<base::SequencedTaskRunner>& task_runner)
     : clockless_(clockless),
       interval_(interval),
       new_frame_cb_(new_frame_cb),
@@ -30,7 +30,7 @@ NullVideoSink::~NullVideoSink() {
 }
 
 void NullVideoSink::Start(RenderCallback* callback) {
-  DCHECK(task_runner_->BelongsToCurrentThread());
+  DCHECK(task_runner_->RunsTasksInCurrentSequence());
   DCHECK(!started_);
   callback_ = callback;
   started_ = true;
@@ -41,7 +41,7 @@ void NullVideoSink::Start(RenderCallback* callback) {
 }
 
 void NullVideoSink::Stop() {
-  DCHECK(task_runner_->BelongsToCurrentThread());
+  DCHECK(task_runner_->RunsTasksInCurrentSequence());
   cancelable_worker_.Cancel();
   started_ = false;
   if (stop_cb_)
@@ -49,7 +49,7 @@ void NullVideoSink::Stop() {
 }
 
 void NullVideoSink::CallRender() {
-  DCHECK(task_runner_->BelongsToCurrentThread());
+  DCHECK(task_runner_->RunsTasksInCurrentSequence());
   DCHECK(started_);
 
   if (render_cb_) {

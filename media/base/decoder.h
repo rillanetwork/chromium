@@ -29,7 +29,8 @@ enum class AudioDecoderType : int {
   kPassthroughDTS = 9,   // Passthrough DTS audio
   kSymphonia = 10,       // Symphonia Rust-backed SymphoniaAudioDecoder.
   kOpus = 11,            // OpusAudioDecoder
-  kIamf = 12,            // IAMFDecoder
+  kNull = 12,            // NullAudioDecoder (persisted since the M150 fork).
+  kIamf = 13,            // IAMFDecoder (upstream uses 12).
 
   // Keep this at the end and equal to the last entry.
   kMaxValue = kIamf,
@@ -59,9 +60,10 @@ enum class VideoDecoderType : int {
   kTesting = 17,       // Never send this to UKM, for tests only.
   kOutOfProcess = 18,  // OOPVideoDecoder (Linux and ChromeOS)
   kVideoToolbox = 19,  // VideoToolboxVideoDecoder (Mac)
+  kNull = 20,          // NullVideoDecoder
 
   // Keep this at the end and equal to the last entry.
-  kMaxValue = kVideoToolbox
+  kMaxValue = kNull
 };
 
 MEDIA_EXPORT const char* GetDecoderName(AudioDecoderType type);

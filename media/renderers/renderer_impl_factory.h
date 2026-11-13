@@ -28,6 +28,8 @@ class AudioRendererSink;
 class DecoderFactory;
 class GpuVideoAcceleratorFactories;
 class MediaLog;
+class NullAudioSink;
+class NullVideoSink;
 class VideoDecoder;
 class VideoRendererSink;
 
@@ -79,6 +81,16 @@ class MEDIA_EXPORT RendererImplFactory final : public RendererFactory {
       GpuVideoAcceleratorFactories* gpu_factories);
 
   const std::unique_ptr<MediaLog> media_log_;
+
+  // Owns the timestamp-consuming sink used by simulated builds. The renderer
+  // only keeps a raw pointer to its sink, so the factory must retain it for the
+  // renderer's lifetime.
+  std::unique_ptr<NullVideoSink> null_video_sink_;
+
+  // Owns the renderer-driven silent sink used by simulated audio builds.
+  // AudioRendererImpl retains a reference, while this reference allows reuse
+  // if the renderer is recreated after a fallback.
+  scoped_refptr<NullAudioSink> null_audio_sink_;
 
   // Factory to create extra audio and video decoders.
   // Could be nullptr if not extra decoders are available.

@@ -132,6 +132,20 @@ source_set("filters") {
 
   libs = []
 
+  if (enable_simulated_video_decode) {
+    sources += [
+      "null_video_decoder.cc",
+      "null_video_decoder.h",
+    ]
+  }
+
+  if (enable_simulated_audio_decode) {
+    sources += [
+      "null_audio_decoder.cc",
+      "null_audio_decoder.h",
+    ]
+  }
+
   if (proprietary_codecs) {
     sources += [
       "h264_to_annex_b_bitstream_converter.cc",
@@ -382,6 +396,14 @@ source_set("unit_tests") {
     "//testing/gtest",
     "//ui/gfx:test_support",
   ]
+
+  if (enable_simulated_video_decode) {
+    sources += [ "null_video_decoder_unittest.cc" ]
+  }
+
+  if (enable_simulated_audio_decode) {
+    sources += [ "null_audio_decoder_unittest.cc" ]
+  }
 
   if (is_android) {
     sources -= [

@@ -82,6 +82,11 @@ source_set("unit_tests") {
     "renderer_impl_unittest.cc",
     "video_renderer_impl_unittest.cc",
   ]
+
+  if (media_use_iamf_tools || enable_simulated_video_decode ||
+      enable_simulated_audio_decode) {
+    sources += [ "default_decoder_factory_unittest.cc" ]
+  }
   configs += [ "//media:media_config" ]
   deps = [
     "//base",
@@ -109,7 +114,4 @@ source_set("unit_tests") {
     }
   }
 
-  if (media_use_iamf_tools) {
-    sources += [ "default_decoder_factory_unittest.cc" ]
-  }
 }

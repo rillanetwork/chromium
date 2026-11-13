@@ -9,10 +9,14 @@
 
 #include "base/functional/bind.h"
 #include "base/task/sequenced_task_runner.h"
+#include "base/time/time.h"
 #include "build/build_config.h"
+#include "media/audio/null_audio_sink.h"
 #include "media/base/audio_buffer.h"
 #include "media/base/decoder_factory.h"
+#include "media/base/null_video_sink.h"
 #include "media/gfx/mappable_shared_image_video_frame_pool.h"
+#include "media/media_buildflags.h"
 #include "media/renderers/audio_renderer_impl.h"
 #include "media/renderers/renderer_impl.h"
 #include "media/renderers/video_renderer_impl.h"
@@ -85,6 +89,28 @@ std::unique_ptr<Renderer> RendererImplFactory::CreateRenderer(
     RequestOverlayInfoCB request_overlay_info_cb,
     const gfx::ColorSpace& target_color_space) {
   DCHECK(audio_renderer_sink);
+
+#if BUILDFLAG(ENABLE_SIMULATED_AUDIO_DECODE)
+  // Keep AudioRendererImpl's normal clock, buffering, and end-of-stream
+  // behavior, but avoid opening a device or passing samples to the audio
+  // service.
+  if (!null_audio_sink_) {
+    null_audio_sink_ = base::MakeRefCounted<NullAudioSink>(media_task_runner);
+  }
+  audio_renderer_sink = null_audio_sink_.get();
+#endif
+
+#if BUILDFLAG(ENABLE_SIMULATED_VIDEO_DECODE)
+  // Preserve VideoRendererImpl's normal timestamp, buffering, and end-of-stream
+  // behavior while consuming its frames before they reach Blink/Viz. Reuse the
+  // sink if a renderer is recreated after a fallback.
+  if (!null_video_sink_) {
+    null_video_sink_ = std::make_unique<NullVideoSink>(
+        /*clockless=*/false, base::Hertz(60), NullVideoSink::NewFrameCB(),
+        media_task_runner);
+  }
+  video_renderer_sink = null_video_sink_.get();
+#endif
 
   std::unique_ptr<AudioRenderer> audio_renderer(new AudioRendererImpl(
       media_task_runner, audio_renderer_sink,
