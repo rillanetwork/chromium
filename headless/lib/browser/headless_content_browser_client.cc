@@ -317,6 +317,11 @@ void HeadlessContentBrowserClient::AppendExtraCommandLineSwitches(
       command_line->GetSwitchValueASCII(::switches::kProcessType);
   const base::CommandLine& old_command_line =
       CHECK_DEREF(base::CommandLine::ForCurrentProcess());
+  if (process_type == ::switches::kZygoteProcess) {
+    // Library CDMs must be loaded before the Linux zygote sandbox is entered.
+    static const char* const kCdmSwitches[] = {switches::kWidevineCdmDirectory};
+    command_line->CopySwitchesFrom(old_command_line, kCdmSwitches);
+  }
   if (process_type == ::switches::kRendererProcess) {
     // Renderer processes are initialized on the UI thread, so this is safe.
     content::RenderProcessHost* render_process_host =

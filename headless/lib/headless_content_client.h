@@ -7,6 +7,7 @@
 
 #include <memory>
 #include <string_view>
+#include <vector>
 
 #include "base/synchronization/lock.h"
 #include "content/public/common/content_client.h"
@@ -27,6 +28,9 @@ class HeadlessContentClient : public content::ContentClient {
   ~HeadlessContentClient() override;
 
   // content::ContentClient implementation:
+  void AddContentDecryptionModules(
+      std::vector<content::CdmInfo>* cdms,
+      std::vector<media::CdmHostFilePath>* cdm_host_file_paths) override;
   std::u16string GetLocalizedString(int message_id) override;
   std::string_view GetDataResource(
       int resource_id,

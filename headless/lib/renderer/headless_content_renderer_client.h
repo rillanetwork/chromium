@@ -22,6 +22,9 @@ class HeadlessContentRendererClient : public content::ContentRendererClient {
 
  private:
   // content::ContentRendererClient overrides.
+  std::unique_ptr<media::KeySystemSupportRegistration> GetSupportedKeySystems(
+      content::RenderFrame* render_frame,
+      media::GetSupportedKeySystemsCB cb) override;
   bool IsDecoderSupportedVideoType(const media::VideoType& type) override;
   bool ShouldSuppressAudioTracks() override;
   void RenderFrameCreated(content::RenderFrame* render_frame) override;

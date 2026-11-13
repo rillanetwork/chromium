@@ -1,4 +1,10 @@
 include_rules = [
+  "+components/cdm/common",
+  "+components/cdm/renderer",
+  "+media/base/cdm_capability.h",
+  "+media/cdm/cdm_paths.h",
+  "+media/media_buildflags.h",
+  "+third_party/widevine/cdm",
   "+components/cookie_config",
   "+components/crash/content/browser",
   "+components/crash/core",

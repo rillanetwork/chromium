@@ -134,6 +134,11 @@ inline constexpr char kUserDataDir[] = "user-data-dir";
 // Prints version information and quits.
 inline constexpr char kVersion[] = "version";
 
+// Absolute path to a provisioned Linux Widevine CDM version directory containing
+// manifest.json and _platform_specific/<platform>_<arch>/libwidevinecdm.so.
+// Requires enable_widevine and enable_library_cdms. No download is performed.
+inline constexpr char kWidevineCdmDirectory[] = "widevine-cdm-directory";
+
 // Sets the initial window size. Provided as string in the format "800,600".
 // This also defines the headless screen size in lieu of --screen-info.
 inline constexpr char kWindowSize[] = "window-size";

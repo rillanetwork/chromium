@@ -9,14 +9,22 @@
 #include "base/check_deref.h"
 #include "base/command_line.h"
 #include "base/strings/string_util.h"
+#include "build/build_config.h"
 #include "content/public/common/web_identity.h"
 #include "content/public/renderer/render_thread.h"
 #include "headless/lib/common/headless_features.h"
 #include "headless/public/switches.h"
 #include "media/base/video_codecs.h"
+#include "media/media_buildflags.h"
 #include "printing/buildflags/buildflags.h"
 #include "third_party/blink/public/platform/url_loader_throttle_provider.h"
 #include "third_party/blink/public/web/modules/credentialmanagement/throttle_helper.h"
+#include "third_party/widevine/cdm/buildflags.h"
+
+#if BUILDFLAG(IS_LINUX) && BUILDFLAG(ENABLE_WIDEVINE) && \
+    BUILDFLAG(ENABLE_LIBRARY_CDMS)
+#include "components/cdm/renderer/key_system_support_update.h"
+#endif
 
 #if BUILDFLAG(ENABLE_PRINTING)
 #include "components/printing/renderer/print_render_frame_helper.h"
@@ -104,6 +112,20 @@ HeadlessContentRendererClient::HeadlessContentRendererClient() {
 }
 
 HeadlessContentRendererClient::~HeadlessContentRendererClient() = default;
+
+std::unique_ptr<media::KeySystemSupportRegistration>
+HeadlessContentRendererClient::GetSupportedKeySystems(
+    content::RenderFrame* render_frame,
+    media::GetSupportedKeySystemsCB cb) {
+#if BUILDFLAG(IS_LINUX) && BUILDFLAG(ENABLE_WIDEVINE) && \
+    BUILDFLAG(ENABLE_LIBRARY_CDMS)
+  return cdm::GetSupportedKeySystemsUpdates(
+      render_frame, /*can_persist_data=*/false, std::move(cb));
+#else
+  return content::ContentRendererClient::GetSupportedKeySystems(render_frame,
+                                                                std::move(cb));
+#endif
+}
 
 void HeadlessContentRendererClient::RenderFrameCreated(
     content::RenderFrame* render_frame) {

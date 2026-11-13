@@ -8,8 +8,8 @@ and `//android_webview`. See
 for more context.
 
 This means that only content embedders can depend on targets in this folder,
-including `//chrome`, `//chromecast`, `//android_webview`, `//fuchsia_web`, and
-`//content/shell` (test content embedder). Other folders, especially `//media`
+including `//chrome`, `//chromecast`, `//android_webview`, `//fuchsia_web`,
+`//headless`, and `//content/shell` (test content embedder). Other folders, especially `//media`
 and `//content`, should NOT depend on targets in this folder.
 
 In general, key system specific logic should not be in `//media` or `//content`.

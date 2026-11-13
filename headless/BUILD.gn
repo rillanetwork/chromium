@@ -13,6 +13,7 @@ import("//pdf/features.gni")
 import("//printing/buildflags/buildflags.gni")
 import("//testing/test.gni")
 import("//third_party/inspector_protocol/inspector_protocol.gni")
+import("//third_party/widevine/cdm/widevine.gni")
 import("//tools/grit/grit_rule.gni")
 import("//tools/grit/repack.gni")
 import("//tools/v8_context_snapshot/v8_context_snapshot.gni")
@@ -242,11 +243,16 @@ source_set("headless_renderer") {
   deps = [
     "//content/public/common",
     "//gin",
+    "//media:media_buildflags",
     "//printing/buildflags",
     "//third_party/blink/public:blink",
+    "//third_party/widevine/cdm:buildflags",
     "//ui/gl",
     "//v8",
   ]
+  if (is_linux && enable_widevine && enable_library_cdms) {
+    deps += [ "//components/cdm/renderer" ]
+  }
   public_deps = [
     ":headless_common",
     "//content/public/renderer",
@@ -803,10 +809,19 @@ component("headless_shell_lib") {
     "//content/public/child",
     "//content/public/common",
     "//content/public/utility",
+    "//media:media_buildflags",
     "//printing/buildflags",
     "//sandbox/policy",
+    "//third_party/widevine/cdm:buildflags",
     "//v8",
   ]
+  if (is_linux && enable_widevine && enable_library_cdms) {
+    deps += [
+      "//components/cdm/common",
+      "//media/cdm:cdm_paths",
+      "//third_party/widevine/cdm:headers",
+    ]
+  }
 
   if (!is_fuchsia) {
     deps += [ "//components/crash/core/app" ]
