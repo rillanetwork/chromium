@@ -362,5 +362,20 @@ report; `--reuse-branch` builds the already ported M158 branch. Publish the
 resulting `.deb` and SHA-256 sidecar to GitHub Releases with the existing
 `publish_release.py` workflow above.
 
+To exercise the packaged executable through Playwright 1.65.0, install the test
+dependency outside the checkout and pass the executable from the extracted or
+installed Debian package:
+
+```sh
+npm install --prefix /tmp/chromium-release-smoke --ignore-scripts playwright-core@1.65.0
+NODE_PATH=/tmp/chromium-release-smoke/node_modules \
+  node tools/rillanetwork/smoke_release.cjs <packaged-chromium-executable>
+```
+
+The smoke test checks source, Playwright, and running-browser versions for exact
+agreement. It also checks MP4, WebM, and WebCodecs capability reporting and
+plays both media fixtures through a seek to end-of-stream. A mismatched future
+Playwright update fails the version check before browser launch.
+
 This port is not a validated release until the focused tests, optimized package
 build, and packaged-browser smoke tests above have passed.
