@@ -1,0 +1,5 @@
+[
+  {"name": "0001-simulated-media.patch", "subject": "media: simulate clear decoding and consume output with null sinks", "paths": ["media/", "tools/metrics/histograms/enums.xml"]},
+  {"name": "0002-webcodecs.patch", "subject": "blink: preserve WebCodecs support with simulated video decoding", "paths": ["third_party/blink/renderer/modules/webcodecs/"]},
+  {"name": "0003-headless-widevine.patch", "subject": "headless: support provisioned software Widevine CDMs on Linux", "paths": ["headless/", "components/cdm/"]}
+]

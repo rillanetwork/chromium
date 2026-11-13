@@ -1,0 +1,123 @@
+From 32ff956d4f45f3a79b797939db7721bb298d6f9d Mon Sep 17 00:00:00 2001
+From: Codex <codex@localhost>
+Date: Fri, 13 Nov 2026 22:44:00 +0000
+Subject: [PATCH] blink: preserve WebCodecs support with simulated video
+ decoding
+
+---
+ .../modules/webcodecs/video_decoder.cc        | 15 +++++++++++++++
+ .../modules/webcodecs/video_decoder_test.cc   | 19 +++++++++++++++++++
+ 2 files changed, 34 insertions(+)
+
+diff --git a/third_party/blink/renderer/modules/webcodecs/video_decoder.cc b/third_party/blink/renderer/modules/webcodecs/video_decoder.cc
+index c5a4045e9c..d482afd961 100644
+--- a/third_party/blink/renderer/modules/webcodecs/video_decoder.cc
++++ b/third_party/blink/renderer/modules/webcodecs/video_decoder.cc
+@@ -75,6 +75,7 @@ namespace blink {
+ 
+ namespace {
+ 
++#if !BUILDFLAG(ENABLE_SIMULATED_VIDEO_DECODE)
+ void DecoderSupport_OnKnown(
+     VideoDecoderSupport* support,
+     std::unique_ptr<VideoDecoder::MediaConfigType> media_config,
+@@ -92,6 +93,7 @@ void DecoderSupport_OnKnown(
+       media::GpuVideoAcceleratorFactories::Supported::kTrue);
+   resolver->Resolve(support);
+ }
++#endif
+ 
+ bool ParseCodecString(const String& codec_string,
+                       media::VideoType& out_video_type,
+@@ -299,13 +301,19 @@ ScriptPromise<VideoDecoderSupport> VideoDecoder::isConfigSupported(
+   auto* config_copy = CopyConfig(*config);
+ 
+   // Run the "Check Configuration Support" algorithm.
++#if !BUILDFLAG(ENABLE_SIMULATED_VIDEO_DECODE)
+   HardwarePreference hw_pref = GetHardwareAccelerationPreference(*config_copy);
++#endif
+   VideoDecoderSupport* support = VideoDecoderSupport::Create();
+   support->setConfig(config_copy);
+ 
++#if BUILDFLAG(ENABLE_SIMULATED_VIDEO_DECODE)
++  if (!media::IsDecoderSupportedVideoType(*video_type)) {
++#else
+   if ((hw_pref == HardwarePreference::kPreferSoftware &&
+        !media::IsDecoderBuiltInVideoCodec(video_type->codec)) ||
+       !media::IsDecoderSupportedVideoType(*video_type)) {
++#endif
+     support->setSupported(false);
+     return ToResolvedPromise<VideoDecoderSupport>(script_state, support);
+   }
+@@ -320,6 +328,7 @@ ScriptPromise<VideoDecoderSupport> VideoDecoder::isConfigSupported(
+   }
+ 
+   // If hardware is preferred, asynchronously check for a hardware decoder.
++#if !BUILDFLAG(ENABLE_SIMULATED_VIDEO_DECODE)
+   if (hw_pref == HardwarePreference::kPreferHardware) {
+     auto* resolver =
+         MakeGarbageCollected<ScriptPromiseResolver<VideoDecoderSupport>>(
+@@ -331,6 +340,7 @@ ScriptPromise<VideoDecoderSupport> VideoDecoder::isConfigSupported(
+         MakeUnwrappingCrossThreadHandle(resolver)));
+     return promise;
+   }
++#endif
+ 
+   // Otherwise, the config is supported.
+   support->setSupported(true);
+@@ -339,6 +349,10 @@ ScriptPromise<VideoDecoderSupport> VideoDecoder::isConfigSupported(
+ 
+ HardwarePreference VideoDecoder::GetHardwarePreference(
+     const ConfigType& config) {
++#if BUILDFLAG(ENABLE_SIMULATED_VIDEO_DECODE)
++  // The simulated decoder is deliberately selected for every preference.
++  return HardwarePreference::kNoPreference;
++#else
+   auto config_pref = GetHardwareAccelerationPreference(config);
+   if (decoder_specific_data_.decoder_helper &&
+       decoder_specific_data_.decoder_helper->RequiresSoftwareDecoder()) {
+@@ -348,6 +362,7 @@ HardwarePreference VideoDecoder::GetHardwarePreference(
+     return HardwarePreference::kPreferSoftware;
+   }
+   return config_pref;
++#endif
+ }
+ 
+ bool VideoDecoder::GetLowDelayPreference(const ConfigType& config) {
+diff --git a/third_party/blink/renderer/modules/webcodecs/video_decoder_test.cc b/third_party/blink/renderer/modules/webcodecs/video_decoder_test.cc
+index 5bfbc897b7..ccee2e9cf3 100644
+--- a/third_party/blink/renderer/modules/webcodecs/video_decoder_test.cc
++++ b/third_party/blink/renderer/modules/webcodecs/video_decoder_test.cc
+@@ -10,6 +10,7 @@
+ #include "media/base/decoder_buffer.h"
+ #include "media/base/mock_filters.h"
+ #include "media/base/video_frame.h"
++#include "media/media_buildflags.h"
+ #include "testing/gmock/include/gmock/gmock.h"
+ #include "testing/gtest/include/gtest/gtest.h"
+ #include "third_party/blink/public/platform/scheduler/test/renderer_scheduler_test_support.h"
+@@ -297,6 +298,24 @@ TEST_F(VideoDecoderTest, isConfigureSupportedWithInvalidHWConfig) {
+   EXPECT_FALSE(result->supported());
+ }
+ 
++#if BUILDFLAG(ENABLE_SIMULATED_VIDEO_DECODE)
++TEST_F(VideoDecoderTest, IsConfigSupportedIgnoresHardwarePreference) {
++  V8TestingScope v8_scope;
++
++  auto* config = CreateVideoConfig();
++  config->setHardwareAcceleration(V8HardwarePreference::Enum::kPreferHardware);
++  auto promise = VideoDecoder::isConfigSupported(
++      v8_scope.GetScriptState(), config, v8_scope.GetExceptionState());
++  ASSERT_FALSE(v8_scope.GetExceptionState().HadException());
++
++  ScriptPromiseTester tester(v8_scope.GetScriptState(), promise);
++  tester.WaitUntilSettled();
++  ASSERT_TRUE(tester.IsFulfilled());
++  auto* result = ToVideoDecoderSupport(&v8_scope, tester.Value());
++  EXPECT_TRUE(result->supported());
++}
++#endif
++
+ TEST_F(VideoDecoderTest, ConfigureGeneratesConfigChangeEOS) {
+   V8TestingScope v8_scope;
+   MockFunctionScope mock_functions(v8_scope.GetScriptState());

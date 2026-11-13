@@ -1,0 +1,318 @@
+From 15391b932885a01c830e42d87d0896cd9cc4bf90 Mon Sep 17 00:00:00 2001
+From: Codex <codex@localhost>
+Date: Fri, 13 Nov 2026 22:44:00 +0000
+Subject: [PATCH] headless: support provisioned software Widevine CDMs on Linux
+
+---
+ components/cdm/README.md                      |  4 +-
+ components/cdm/common/BUILD.gn                |  1 +
+ components/cdm/renderer/BUILD.gn              |  1 +
+ headless/BUILD.gn                             | 15 +++++
+ headless/DEPS                                 |  6 ++
+ .../headless_content_browser_client.cc        |  5 ++
+ headless/lib/headless_content_client.cc       | 58 +++++++++++++++++++
+ headless/lib/headless_content_client.h        |  4 ++
+ .../headless_content_renderer_client.cc       | 22 +++++++
+ .../headless_content_renderer_client.h        |  3 +
+ headless/public/switches.h                    |  5 ++
+ 11 files changed, 122 insertions(+), 2 deletions(-)
+
+diff --git a/components/cdm/README.md b/components/cdm/README.md
+index 105cb8c3e4..f209a3bfba 100644
+--- a/components/cdm/README.md
++++ b/components/cdm/README.md
+@@ -8,8 +8,8 @@ and `//android_webview`. See
+ for more context.
+ 
+ This means that only content embedders can depend on targets in this folder,
+-including `//chrome`, `//chromecast`, `//android_webview`, `//fuchsia_web`, and
+-`//content/shell` (test content embedder). Other folders, especially `//media`
++including `//chrome`, `//chromecast`, `//android_webview`, `//fuchsia_web`,
++`//headless`, and `//content/shell` (test content embedder). Other folders, especially `//media`
+ and `//content`, should NOT depend on targets in this folder.
+ 
+ In general, key system specific logic should not be in `//media` or `//content`.
+diff --git a/components/cdm/common/BUILD.gn b/components/cdm/common/BUILD.gn
+index 687d501791..71024177b6 100644
+--- a/components/cdm/common/BUILD.gn
++++ b/components/cdm/common/BUILD.gn
+@@ -22,6 +22,7 @@ static_library("common") {
+     "//components/cdm/*",
+     "//content/shell/*",
+     "//fuchsia_web/*",
++    "//headless/*",
+   ]
+ 
+   deps = [
+diff --git a/components/cdm/renderer/BUILD.gn b/components/cdm/renderer/BUILD.gn
+index fbe2ec2264..b3853ec92d 100644
+--- a/components/cdm/renderer/BUILD.gn
++++ b/components/cdm/renderer/BUILD.gn
+@@ -14,6 +14,7 @@ static_library("renderer") {
+     "//components/cdm/*",
+     "//content/shell/*",
+     "//fuchsia_web/*",
++    "//headless/*",
+   ]
+ 
+   sources = [
+diff --git a/headless/BUILD.gn b/headless/BUILD.gn
+index c7a1c81aa3..a2536c62dd 100644
+--- a/headless/BUILD.gn
++++ b/headless/BUILD.gn
+@@ -13,6 +13,7 @@ import("//pdf/features.gni")
+ import("//printing/buildflags/buildflags.gni")
+ import("//testing/test.gni")
+ import("//third_party/inspector_protocol/inspector_protocol.gni")
++import("//third_party/widevine/cdm/widevine.gni")
+ import("//tools/grit/grit_rule.gni")
+ import("//tools/grit/repack.gni")
+ import("//tools/v8_context_snapshot/v8_context_snapshot.gni")
+@@ -242,11 +243,16 @@ source_set("headless_renderer") {
+   deps = [
+     "//content/public/common",
+     "//gin",
++    "//media:media_buildflags",
+     "//printing/buildflags",
+     "//third_party/blink/public:blink",
++    "//third_party/widevine/cdm:buildflags",
+     "//ui/gl",
+     "//v8",
+   ]
++  if (is_linux && enable_widevine && enable_library_cdms) {
++    deps += [ "//components/cdm/renderer" ]
++  }
+   public_deps = [
+     ":headless_common",
+     "//content/public/renderer",
+@@ -803,10 +809,19 @@ component("headless_shell_lib") {
+     "//content/public/child",
+     "//content/public/common",
+     "//content/public/utility",
++    "//media:media_buildflags",
+     "//printing/buildflags",
+     "//sandbox/policy",
++    "//third_party/widevine/cdm:buildflags",
+     "//v8",
+   ]
++  if (is_linux && enable_widevine && enable_library_cdms) {
++    deps += [
++      "//components/cdm/common",
++      "//media/cdm:cdm_paths",
++      "//third_party/widevine/cdm:headers",
++    ]
++  }
+ 
+   if (!is_fuchsia) {
+     deps += [ "//components/crash/core/app" ]
+diff --git a/headless/DEPS b/headless/DEPS
+index dac478a457..c6ee94858f 100644
+--- a/headless/DEPS
++++ b/headless/DEPS
+@@ -1,4 +1,10 @@
+ include_rules = [
++  "+components/cdm/common",
++  "+components/cdm/renderer",
++  "+media/base/cdm_capability.h",
++  "+media/cdm/cdm_paths.h",
++  "+media/media_buildflags.h",
++  "+third_party/widevine/cdm",
+   "+components/cookie_config",
+   "+components/crash/content/browser",
+   "+components/crash/core",
+diff --git a/headless/lib/browser/headless_content_browser_client.cc b/headless/lib/browser/headless_content_browser_client.cc
+index 1db3bd21f4..31a060724b 100644
+--- a/headless/lib/browser/headless_content_browser_client.cc
++++ b/headless/lib/browser/headless_content_browser_client.cc
+@@ -317,6 +317,11 @@ void HeadlessContentBrowserClient::AppendExtraCommandLineSwitches(
+       command_line->GetSwitchValueASCII(::switches::kProcessType);
+   const base::CommandLine& old_command_line =
+       CHECK_DEREF(base::CommandLine::ForCurrentProcess());
++  if (process_type == ::switches::kZygoteProcess) {
++    // Library CDMs must be loaded before the Linux zygote sandbox is entered.
++    static const char* const kCdmSwitches[] = {switches::kWidevineCdmDirectory};
++    command_line->CopySwitchesFrom(old_command_line, kCdmSwitches);
++  }
+   if (process_type == ::switches::kRendererProcess) {
+     // Renderer processes are initialized on the UI thread, so this is safe.
+     content::RenderProcessHost* render_process_host =
+diff --git a/headless/lib/headless_content_client.cc b/headless/lib/headless_content_client.cc
+index 033909d85a..93a3e4060a 100644
+--- a/headless/lib/headless_content_client.cc
++++ b/headless/lib/headless_content_client.cc
+@@ -4,17 +4,75 @@
+ 
+ #include "headless/lib/headless_content_client.h"
+ 
++#include <utility>
++
+ #include "base/memory/ref_counted_memory.h"
++#include "build/build_config.h"
+ #include "components/embedder_support/origin_trials/origin_trial_policy_impl.h"
++#include "media/media_buildflags.h"
++#include "third_party/widevine/cdm/buildflags.h"
+ #include "ui/base/l10n/l10n_util.h"
+ #include "ui/base/resource/resource_bundle.h"
+ 
++#if BUILDFLAG(IS_LINUX) && BUILDFLAG(ENABLE_WIDEVINE) && \
++    BUILDFLAG(ENABLE_LIBRARY_CDMS)
++#include "base/command_line.h"
++#include "base/files/file_util.h"
++#include "base/logging.h"
++#include "base/native_library.h"
++#include "components/cdm/common/cdm_manifest.h"
++#include "content/public/common/cdm_info.h"
++#include "headless/public/switches.h"
++#include "media/base/cdm_capability.h"
++#include "media/cdm/cdm_paths.h"
++#include "third_party/widevine/cdm/widevine_cdm_common.h"
++#endif
++
+ namespace headless {
+ 
+ HeadlessContentClient::HeadlessContentClient() = default;
+ 
+ HeadlessContentClient::~HeadlessContentClient() = default;
+ 
++void HeadlessContentClient::AddContentDecryptionModules(
++    std::vector<content::CdmInfo>* cdms,
++    std::vector<media::CdmHostFilePath>* cdm_host_file_paths) {
++#if BUILDFLAG(IS_LINUX) && BUILDFLAG(ENABLE_WIDEVINE) && \
++    BUILDFLAG(ENABLE_LIBRARY_CDMS)
++  if (!cdms) {
++    return;
++  }
++  const auto directory =
++      base::CommandLine::ForCurrentProcess()->GetSwitchValuePath(
++          switches::kWidevineCdmDirectory);
++  if (directory.empty()) {
++    return;
++  }
++  // Both the browser and the pre-sandbox zygote call this hook. Use the same
++  // explicitly provisioned CDM in each; do not discover or update it at
++  // runtime.
++  if (!directory.IsAbsolute()) {
++    LOG(ERROR) << "--widevine-cdm-directory requires an absolute path";
++    return;
++  }
++  const auto library = media::GetPlatformSpecificDirectory(directory).Append(
++      base::GetNativeLibraryName(kWidevineCdmLibraryName));
++  media::CdmCapability capability;
++  if (!base::PathExists(library) ||
++      !ParseCdmManifestFromPath(
++          directory.Append(FILE_PATH_LITERAL("manifest.json")), &capability)) {
++    LOG(ERROR) << "Missing or incompatible Widevine CDM in " << directory;
++    return;
++  }
++  // This mode supports temporary sessions only, including incognito contexts.
++  capability.session_types = {media::CdmSessionType::kTemporary};
++  cdms->emplace_back(kWidevineKeySystem,
++                     content::CdmInfo::Robustness::kSoftwareSecure,
++                     std::move(capability), /*supports_sub_key_systems=*/false,
++                     kWidevineCdmDisplayName, kWidevineCdmType, library);
++#endif
++}
++
+ std::u16string HeadlessContentClient::GetLocalizedString(int message_id) {
+   return l10n_util::GetStringUTF16(message_id);
+ }
+diff --git a/headless/lib/headless_content_client.h b/headless/lib/headless_content_client.h
+index ed07e0c619..db60b76d53 100644
+--- a/headless/lib/headless_content_client.h
++++ b/headless/lib/headless_content_client.h
+@@ -7,6 +7,7 @@
+ 
+ #include <memory>
+ #include <string_view>
++#include <vector>
+ 
+ #include "base/synchronization/lock.h"
+ #include "content/public/common/content_client.h"
+@@ -27,6 +28,9 @@ class HeadlessContentClient : public content::ContentClient {
+   ~HeadlessContentClient() override;
+ 
+   // content::ContentClient implementation:
++  void AddContentDecryptionModules(
++      std::vector<content::CdmInfo>* cdms,
++      std::vector<media::CdmHostFilePath>* cdm_host_file_paths) override;
+   std::u16string GetLocalizedString(int message_id) override;
+   std::string_view GetDataResource(
+       int resource_id,
+diff --git a/headless/lib/renderer/headless_content_renderer_client.cc b/headless/lib/renderer/headless_content_renderer_client.cc
+index df349d3bf6..ced90555e6 100644
+--- a/headless/lib/renderer/headless_content_renderer_client.cc
++++ b/headless/lib/renderer/headless_content_renderer_client.cc
+@@ -9,14 +9,22 @@
+ #include "base/check_deref.h"
+ #include "base/command_line.h"
+ #include "base/strings/string_util.h"
++#include "build/build_config.h"
+ #include "content/public/common/web_identity.h"
+ #include "content/public/renderer/render_thread.h"
+ #include "headless/lib/common/headless_features.h"
+ #include "headless/public/switches.h"
+ #include "media/base/video_codecs.h"
++#include "media/media_buildflags.h"
+ #include "printing/buildflags/buildflags.h"
+ #include "third_party/blink/public/platform/url_loader_throttle_provider.h"
+ #include "third_party/blink/public/web/modules/credentialmanagement/throttle_helper.h"
++#include "third_party/widevine/cdm/buildflags.h"
++
++#if BUILDFLAG(IS_LINUX) && BUILDFLAG(ENABLE_WIDEVINE) && \
++    BUILDFLAG(ENABLE_LIBRARY_CDMS)
++#include "components/cdm/renderer/key_system_support_update.h"
++#endif
+ 
+ #if BUILDFLAG(ENABLE_PRINTING)
+ #include "components/printing/renderer/print_render_frame_helper.h"
+@@ -105,6 +113,20 @@ HeadlessContentRendererClient::HeadlessContentRendererClient() {
+ 
+ HeadlessContentRendererClient::~HeadlessContentRendererClient() = default;
+ 
++std::unique_ptr<media::KeySystemSupportRegistration>
++HeadlessContentRendererClient::GetSupportedKeySystems(
++    content::RenderFrame* render_frame,
++    media::GetSupportedKeySystemsCB cb) {
++#if BUILDFLAG(IS_LINUX) && BUILDFLAG(ENABLE_WIDEVINE) && \
++    BUILDFLAG(ENABLE_LIBRARY_CDMS)
++  return cdm::GetSupportedKeySystemsUpdates(
++      render_frame, /*can_persist_data=*/false, std::move(cb));
++#else
++  return content::ContentRendererClient::GetSupportedKeySystems(render_frame,
++                                                                std::move(cb));
++#endif
++}
++
+ void HeadlessContentRendererClient::RenderFrameCreated(
+     content::RenderFrame* render_frame) {
+ #if BUILDFLAG(ENABLE_PRINTING)
+diff --git a/headless/lib/renderer/headless_content_renderer_client.h b/headless/lib/renderer/headless_content_renderer_client.h
+index a4fc6a7682..8c0d616b2a 100644
+--- a/headless/lib/renderer/headless_content_renderer_client.h
++++ b/headless/lib/renderer/headless_content_renderer_client.h
+@@ -22,6 +22,9 @@ class HeadlessContentRendererClient : public content::ContentRendererClient {
+ 
+  private:
+   // content::ContentRendererClient overrides.
++  std::unique_ptr<media::KeySystemSupportRegistration> GetSupportedKeySystems(
++      content::RenderFrame* render_frame,
++      media::GetSupportedKeySystemsCB cb) override;
+   bool IsDecoderSupportedVideoType(const media::VideoType& type) override;
+   bool ShouldSuppressAudioTracks() override;
+   void RenderFrameCreated(content::RenderFrame* render_frame) override;
+diff --git a/headless/public/switches.h b/headless/public/switches.h
+index 1ab422fba4..6c0e3c3995 100644
+--- a/headless/public/switches.h
++++ b/headless/public/switches.h
+@@ -134,6 +134,11 @@ inline constexpr char kUserDataDir[] = "user-data-dir";
+ // Prints version information and quits.
+ inline constexpr char kVersion[] = "version";
+ 
++// Absolute path to a provisioned Linux Widevine CDM version directory containing
++// manifest.json and _platform_specific/<platform>_<arch>/libwidevinecdm.so.
++// Requires enable_widevine and enable_library_cdms. No download is performed.
++inline constexpr char kWidevineCdmDirectory[] = "widevine-cdm-directory";
++
+ // Sets the initial window size. Provided as string in the format "800,600".
+ // This also defines the headless screen size in lieu of --screen-info.
+ inline constexpr char kWindowSize[] = "window-size";

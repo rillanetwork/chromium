@@ -1,0 +1,1334 @@
+From 1b762a4b8b24edaf8e1bb82a1b1f80d8cee619bb Mon Sep 17 00:00:00 2001
+From: Codex <codex@localhost>
+Date: Fri, 13 Nov 2026 22:44:00 +0000
+Subject: [PATCH] media: simulate clear decoding and consume output with null
+ sinks
+
+---
+ media/BUILD.gn                                |   2 +
+ media/base/decoder.cc                         |   4 +
+ media/base/decoder.h                          |   6 +-
+ media/base/null_video_sink.cc                 |  10 +-
+ media/base/null_video_sink.h                  |   6 +-
+ media/base/supported_types.cc                 |   4 +-
+ media/base/supported_types_unittest.cc        |   6 +-
+ media/filters/BUILD.gn                        |  22 ++
+ media/filters/null_audio_decoder.cc           | 171 +++++++++++++++
+ media/filters/null_audio_decoder.h            |  60 ++++++
+ media/filters/null_audio_decoder_unittest.cc  | 197 ++++++++++++++++++
+ media/filters/null_video_decoder.cc           |  97 +++++++++
+ media/filters/null_video_decoder.h            |  50 +++++
+ media/filters/null_video_decoder_unittest.cc  | 186 +++++++++++++++++
+ media/media_options.gni                       |   8 +
+ media/renderers/BUILD.gn                      |   8 +-
+ media/renderers/default_decoder_factory.cc    |  19 ++
+ .../default_decoder_factory_unittest.cc       |  47 +++++
+ media/renderers/renderer_impl_factory.cc      |  26 +++
+ media/renderers/renderer_impl_factory.h       |  12 ++
+ tools/metrics/histograms/enums.xml            |   3 +
+ 21 files changed, 928 insertions(+), 16 deletions(-)
+ create mode 100644 media/filters/null_audio_decoder.cc
+ create mode 100644 media/filters/null_audio_decoder.h
+ create mode 100644 media/filters/null_audio_decoder_unittest.cc
+ create mode 100644 media/filters/null_video_decoder.cc
+ create mode 100644 media/filters/null_video_decoder.h
+ create mode 100644 media/filters/null_video_decoder_unittest.cc
+
+diff --git a/media/BUILD.gn b/media/BUILD.gn
+index e28543530b..8ea746e7cc 100644
+--- a/media/BUILD.gn
++++ b/media/BUILD.gn
+@@ -53,6 +53,8 @@ buildflag_header("media_buildflags") {
+     "ENABLE_MEDIA_REMOTING_REDIRECTION=$enable_media_remoting_redirection",
+     "ENABLE_OPENH264=$media_use_openh264",
+     "ENABLE_PASSTHROUGH_AUDIO_CODECS=$enable_passthrough_audio_codecs",
++    "ENABLE_SIMULATED_AUDIO_DECODE=$enable_simulated_audio_decode",
++    "ENABLE_SIMULATED_VIDEO_DECODE=$enable_simulated_video_decode",
+     "ENABLE_PLATFORM_DTS_AUDIO=$enable_platform_dts_audio",
+     "ENABLE_IAMF_TOOLS=$media_use_iamf_tools",
+     "ENABLE_PLATFORM_IAMF_AUDIO=$enable_platform_iamf_audio",
+diff --git a/media/base/decoder.cc b/media/base/decoder.cc
+index e3ff521f8c..bbf4e11800 100644
+--- a/media/base/decoder.cc
++++ b/media/base/decoder.cc
+@@ -59,6 +59,8 @@ const char* GetDecoderName(VideoDecoderType type) {
+       return "OOPVideoDecoder";
+     case VideoDecoderType::kVideoToolbox:
+       return "VideoToolboxVideoDecoder";
++    case VideoDecoderType::kNull:
++      return "NullVideoDecoder";
+   }
+ }
+ 
+@@ -90,6 +92,8 @@ const char* GetDecoderName(AudioDecoderType type) {
+       return "OpusAudioDecoder";
+     case AudioDecoderType::kIamf:
+       return "IamfAudioDecoder";
++    case AudioDecoderType::kNull:
++      return "NullAudioDecoder";
+   }
+ }
+ 
+diff --git a/media/base/decoder.h b/media/base/decoder.h
+index 3255a21ea9..29ce20f041 100644
+--- a/media/base/decoder.h
++++ b/media/base/decoder.h
+@@ -29,7 +29,8 @@ enum class AudioDecoderType : int {
+   kPassthroughDTS = 9,   // Passthrough DTS audio
+   kSymphonia = 10,       // Symphonia Rust-backed SymphoniaAudioDecoder.
+   kOpus = 11,            // OpusAudioDecoder
+-  kIamf = 12,            // IAMFDecoder
++  kNull = 12,            // NullAudioDecoder (persisted since the M150 fork).
++  kIamf = 13,            // IAMFDecoder (upstream uses 12).
+ 
+   // Keep this at the end and equal to the last entry.
+   kMaxValue = kIamf,
+@@ -59,9 +60,10 @@ enum class VideoDecoderType : int {
+   kTesting = 17,       // Never send this to UKM, for tests only.
+   kOutOfProcess = 18,  // OOPVideoDecoder (Linux and ChromeOS)
+   kVideoToolbox = 19,  // VideoToolboxVideoDecoder (Mac)
++  kNull = 20,          // NullVideoDecoder
+ 
+   // Keep this at the end and equal to the last entry.
+-  kMaxValue = kVideoToolbox
++  kMaxValue = kNull
+ };
+ 
+ MEDIA_EXPORT const char* GetDecoderName(AudioDecoderType type);
+diff --git a/media/base/null_video_sink.cc b/media/base/null_video_sink.cc
+index bd89b669c3..5ed27d9275 100644
+--- a/media/base/null_video_sink.cc
++++ b/media/base/null_video_sink.cc
+@@ -7,7 +7,7 @@
+ #include "base/functional/bind.h"
+ #include "base/functional/callback_helpers.h"
+ #include "base/location.h"
+-#include "base/task/single_thread_task_runner.h"
++#include "base/task/sequenced_task_runner.h"
+ 
+ namespace media {
+ 
+@@ -15,7 +15,7 @@ NullVideoSink::NullVideoSink(
+     bool clockless,
+     base::TimeDelta interval,
+     const NewFrameCB& new_frame_cb,
+-    const scoped_refptr<base::SingleThreadTaskRunner>& task_runner)
++    const scoped_refptr<base::SequencedTaskRunner>& task_runner)
+     : clockless_(clockless),
+       interval_(interval),
+       new_frame_cb_(new_frame_cb),
+@@ -30,7 +30,7 @@ NullVideoSink::~NullVideoSink() {
+ }
+ 
+ void NullVideoSink::Start(RenderCallback* callback) {
+-  DCHECK(task_runner_->BelongsToCurrentThread());
++  DCHECK(task_runner_->RunsTasksInCurrentSequence());
+   DCHECK(!started_);
+   callback_ = callback;
+   started_ = true;
+@@ -41,7 +41,7 @@ void NullVideoSink::Start(RenderCallback* callback) {
+ }
+ 
+ void NullVideoSink::Stop() {
+-  DCHECK(task_runner_->BelongsToCurrentThread());
++  DCHECK(task_runner_->RunsTasksInCurrentSequence());
+   cancelable_worker_.Cancel();
+   started_ = false;
+   if (stop_cb_)
+@@ -49,7 +49,7 @@ void NullVideoSink::Stop() {
+ }
+ 
+ void NullVideoSink::CallRender() {
+-  DCHECK(task_runner_->BelongsToCurrentThread());
++  DCHECK(task_runner_->RunsTasksInCurrentSequence());
+   DCHECK(started_);
+ 
+   if (render_cb_) {
+diff --git a/media/base/null_video_sink.h b/media/base/null_video_sink.h
+index 3889652d3b..5212066148 100644
+--- a/media/base/null_video_sink.h
++++ b/media/base/null_video_sink.h
+@@ -14,7 +14,7 @@
+ #include "media/base/video_renderer_sink.h"
+ 
+ namespace base {
+-class SingleThreadTaskRunner;
++class SequencedTaskRunner;
+ }
+ 
+ namespace media {
+@@ -30,7 +30,7 @@ class MEDIA_EXPORT NullVideoSink : public VideoRendererSink {
+   NullVideoSink(bool clockless,
+                 base::TimeDelta interval,
+                 const NewFrameCB& new_frame_cb,
+-                const scoped_refptr<base::SingleThreadTaskRunner>& task_runner);
++                const scoped_refptr<base::SequencedTaskRunner>& task_runner);
+ 
+   NullVideoSink(const NullVideoSink&) = delete;
+   NullVideoSink& operator=(const NullVideoSink&) = delete;
+@@ -70,7 +70,7 @@ class MEDIA_EXPORT NullVideoSink : public VideoRendererSink {
+   bool clockless_;
+   const base::TimeDelta interval_;
+   const NewFrameCB new_frame_cb_;
+-  scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
++  scoped_refptr<base::SequencedTaskRunner> task_runner_;
+ 
+   bool started_;
+   raw_ptr<RenderCallback, AcrossTasksDanglingUntriaged> callback_;
+diff --git a/media/base/supported_types.cc b/media/base/supported_types.cc
+index efc7246c8c..1d99ab5de3 100644
+--- a/media/base/supported_types.cc
++++ b/media/base/supported_types.cc
+@@ -234,7 +234,9 @@ bool IsDecoderHevcProfileSupported(const VideoType& type) {
+   }
+ 
+ #if BUILDFLAG(ENABLE_PLATFORM_HEVC)
+-#if BUILDFLAG(PLATFORM_HAS_OPTIONAL_HEVC_DECODE_SUPPORT)
++#if BUILDFLAG(ENABLE_SIMULATED_VIDEO_DECODE)
++  return true;
++#elif BUILDFLAG(PLATFORM_HAS_OPTIONAL_HEVC_DECODE_SUPPORT)
+ #if BUILDFLAG(IS_CHROMEOS)
+   if (!base::FeatureList::IsEnabled(kPlatformHEVCDecoderSupport)) {
+     return false;
+diff --git a/media/base/supported_types_unittest.cc b/media/base/supported_types_unittest.cc
+index 689324b907..457828414d 100644
+--- a/media/base/supported_types_unittest.cc
++++ b/media/base/supported_types_unittest.cc
+@@ -8,6 +8,7 @@
+ #include "build/build_config.h"
+ #include "media/base/media_switches.h"
+ #include "media/base/media_util.h"
++#include "media/media_buildflags.h"
+ #include "media/mojo/buildflags.h"
+ #include "testing/gtest/include/gtest/gtest.h"
+ 
+@@ -60,8 +61,9 @@ TEST(SupportedTypesTest, IsDecoderSupportedVideoTypeBasics) {
+                                             VIDEO_CODEC_PROFILE_UNKNOWN,
+                                             kUnspecifiedLevel, kColorSpace}));
+ 
+-#if BUILDFLAG(ENABLE_PLATFORM_HEVC) && \
+-    !BUILDFLAG(PLATFORM_HAS_OPTIONAL_HEVC_DECODE_SUPPORT)
++#if BUILDFLAG(ENABLE_PLATFORM_HEVC) &&           \
++    (BUILDFLAG(ENABLE_SIMULATED_VIDEO_DECODE) || \
++     !BUILDFLAG(PLATFORM_HAS_OPTIONAL_HEVC_DECODE_SUPPORT))
+   EXPECT_TRUE(IsDecoderSupportedVideoType({VideoCodec::kHEVC,
+                                            VIDEO_CODEC_PROFILE_UNKNOWN,
+                                            kUnspecifiedLevel, kColorSpace}));
+diff --git a/media/filters/BUILD.gn b/media/filters/BUILD.gn
+index cda49de26d..bb70454261 100644
+--- a/media/filters/BUILD.gn
++++ b/media/filters/BUILD.gn
+@@ -132,6 +132,20 @@ source_set("filters") {
+ 
+   libs = []
+ 
++  if (enable_simulated_video_decode) {
++    sources += [
++      "null_video_decoder.cc",
++      "null_video_decoder.h",
++    ]
++  }
++
++  if (enable_simulated_audio_decode) {
++    sources += [
++      "null_audio_decoder.cc",
++      "null_audio_decoder.h",
++    ]
++  }
++
+   if (proprietary_codecs) {
+     sources += [
+       "h264_to_annex_b_bitstream_converter.cc",
+@@ -383,6 +397,14 @@ source_set("unit_tests") {
+     "//ui/gfx:test_support",
+   ]
+ 
++  if (enable_simulated_video_decode) {
++    sources += [ "null_video_decoder_unittest.cc" ]
++  }
++
++  if (enable_simulated_audio_decode) {
++    sources += [ "null_audio_decoder_unittest.cc" ]
++  }
++
+   if (is_android) {
+     sources -= [
+       "decrypting_audio_decoder_unittest.cc",
+diff --git a/media/filters/null_audio_decoder.cc b/media/filters/null_audio_decoder.cc
+new file mode 100644
+index 0000000000..a4489d41f7
+--- /dev/null
++++ b/media/filters/null_audio_decoder.cc
+@@ -0,0 +1,171 @@
++// Copyright 2026 The Chromium Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "media/filters/null_audio_decoder.h"
++
++#include <algorithm>
++#include <limits>
++#include <utility>
++
++#include "base/check.h"
++#include "base/task/bind_post_task.h"
++#include "media/base/audio_buffer.h"
++#include "media/base/audio_timestamp_helper.h"
++#include "media/base/decoder_buffer.h"
++#include "media/base/timestamp_constants.h"
++
++namespace media {
++
++namespace {
++
++// Only the final packet needs an estimate: packets without durations are held
++// until the next timestamp can provide an exact value. Twenty milliseconds is
++// a common audio packet duration and keeps the clock moving at end of stream.
++constexpr base::TimeDelta kFinalBufferFallbackDuration = base::Milliseconds(20);
++
++}  // namespace
++
++NullAudioDecoder::NullAudioDecoder() {
++  DETACH_FROM_SEQUENCE(sequence_checker_);
++}
++
++NullAudioDecoder::~NullAudioDecoder() {
++  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
++}
++
++AudioDecoderType NullAudioDecoder::GetDecoderType() const {
++  return AudioDecoderType::kNull;
++}
++
++void NullAudioDecoder::Initialize(const AudioDecoderConfig& config,
++                                  CdmContext* /*cdm_context*/,
++                                  InitCB init_cb,
++                                  const OutputCB& output_cb,
++                                  const WaitingCB& /*waiting_cb*/) {
++  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
++  DCHECK(config.IsValidConfig());
++  DCHECK(output_cb);
++
++  InitCB bound_init_cb = base::BindPostTaskToCurrentDefault(std::move(init_cb));
++
++  initialized_ = false;
++  output_cb_.Reset();
++  discard_helper_.reset();
++  pending_time_info_.reset();
++  last_duration_ = base::TimeDelta();
++
++  if (config.is_encrypted()) {
++    // Let Chromium's decrypting path produce clear buffers, after which it can
++    // initialize another NullAudioDecoder with the clear configuration.
++    std::move(bound_init_cb)
++        .Run(DecoderStatus::Codes::kUnsupportedEncryptionMode);
++    return;
++  }
++
++  config_ = config;
++  output_cb_ = base::BindPostTaskToCurrentDefault(output_cb);
++  discard_helper_ = std::make_unique<AudioDiscardHelper>(
++      config.samples_per_second(), /*decoder_delay=*/0,
++      /*delayed_discard=*/false);
++  discard_helper_->Reset(/*initial_discard=*/0);
++  initialized_ = true;
++  decode_finished_ = false;
++  std::move(bound_init_cb).Run(DecoderStatus::Codes::kOk);
++}
++
++void NullAudioDecoder::Decode(scoped_refptr<DecoderBuffer> buffer,
++                              DecodeCB decode_cb) {
++  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
++  CHECK(initialized_);
++  CHECK(buffer);
++
++  DecodeCB bound_decode_cb =
++      base::BindPostTaskToCurrentDefault(std::move(decode_cb));
++  if (decode_finished_) {
++    std::move(bound_decode_cb).Run(DecoderStatus::Codes::kOk);
++    return;
++  }
++
++  if (buffer->end_of_stream()) {
++    if (pending_time_info_) {
++      EmitSilentBuffer(*pending_time_info_, DurationForFinalBuffer());
++      pending_time_info_.reset();
++    }
++    decode_finished_ = true;
++    std::move(bound_decode_cb).Run(DecoderStatus::Codes::kOk);
++    return;
++  }
++
++  if (buffer->is_encrypted()) {
++    std::move(bound_decode_cb)
++        .Run(DecoderStatus::Codes::kUnsupportedEncryptionMode);
++    return;
++  }
++
++  if (buffer->timestamp() == kNoTimestamp) {
++    std::move(bound_decode_cb).Run(DecoderStatus::Codes::kFailed);
++    return;
++  }
++
++  const AudioDiscardHelper::TimeInfo time_info =
++      AudioDiscardHelper::TimeInfo::FromBuffer(*buffer);
++
++  if (pending_time_info_) {
++    const base::TimeDelta inferred_duration =
++        time_info.timestamp - pending_time_info_->timestamp;
++    const base::TimeDelta pending_duration = inferred_duration.is_positive()
++                                                 ? inferred_duration
++                                                 : DurationForFinalBuffer();
++    EmitSilentBuffer(*pending_time_info_, pending_duration);
++    last_duration_ = pending_duration;
++    pending_time_info_.reset();
++  }
++
++  if (time_info.duration.is_positive()) {
++    EmitSilentBuffer(time_info, time_info.duration);
++    last_duration_ = time_info.duration;
++  } else {
++    // FFmpeg demuxing commonly leaves packet duration unknown. Retain just the
++    // timing metadata, not the compressed payload, and infer it from the next
++    // packet timestamp.
++    pending_time_info_ = time_info;
++  }
++
++  std::move(bound_decode_cb).Run(DecoderStatus::Codes::kOk);
++}
++
++void NullAudioDecoder::Reset(base::OnceClosure reset_cb) {
++  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
++  decode_finished_ = false;
++  pending_time_info_.reset();
++  last_duration_ = base::TimeDelta();
++  discard_helper_->Reset(/*initial_discard=*/0);
++  base::BindPostTaskToCurrentDefault(std::move(reset_cb)).Run();
++}
++
++void NullAudioDecoder::EmitSilentBuffer(AudioDiscardHelper::TimeInfo time_info,
++                                        base::TimeDelta duration) {
++  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
++  CHECK(duration.is_positive());
++
++  time_info.duration = duration;
++  const int64_t frames = AudioTimestampHelper::TimeToFrames(
++      duration, config_.samples_per_second());
++  const int frame_count = static_cast<int>(
++      std::clamp<int64_t>(frames, 1, std::numeric_limits<int>::max()));
++  scoped_refptr<AudioBuffer> output = AudioBuffer::CreateEmptyBuffer(
++      config_.channel_layout(), config_.channels(),
++      config_.samples_per_second(), frame_count, time_info.timestamp);
++
++  if (discard_helper_->ProcessBuffers(time_info, output.get())) {
++    output_cb_.Run(std::move(output));
++  }
++}
++
++base::TimeDelta NullAudioDecoder::DurationForFinalBuffer() const {
++  return last_duration_.is_positive() ? last_duration_
++                                      : kFinalBufferFallbackDuration;
++}
++
++}  // namespace media
+diff --git a/media/filters/null_audio_decoder.h b/media/filters/null_audio_decoder.h
+new file mode 100644
+index 0000000000..43f2e3e5c5
+--- /dev/null
++++ b/media/filters/null_audio_decoder.h
+@@ -0,0 +1,60 @@
++// Copyright 2026 The Chromium Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef MEDIA_FILTERS_NULL_AUDIO_DECODER_H_
++#define MEDIA_FILTERS_NULL_AUDIO_DECODER_H_
++
++#include <memory>
++#include <optional>
++
++#include "base/sequence_checker.h"
++#include "base/time/time.h"
++#include "media/base/audio_decoder.h"
++#include "media/base/audio_decoder_config.h"
++#include "media/base/audio_discard_helper.h"
++
++namespace media {
++
++// A lightweight decoder that ignores compressed input and emits silent audio
++// buffers. The buffers carry the original stream timing but no sample
++// allocation, allowing the normal audio clock and renderer state to advance
++// without codec work.
++class MEDIA_EXPORT NullAudioDecoder final : public AudioDecoder {
++ public:
++  NullAudioDecoder();
++
++  NullAudioDecoder(const NullAudioDecoder&) = delete;
++  NullAudioDecoder& operator=(const NullAudioDecoder&) = delete;
++
++  ~NullAudioDecoder() override;
++
++  // AudioDecoder implementation.
++  AudioDecoderType GetDecoderType() const override;
++  void Initialize(const AudioDecoderConfig& config,
++                  CdmContext* cdm_context,
++                  InitCB init_cb,
++                  const OutputCB& output_cb,
++                  const WaitingCB& waiting_cb) override;
++  void Decode(scoped_refptr<DecoderBuffer> buffer, DecodeCB decode_cb) override;
++  void Reset(base::OnceClosure reset_cb) override;
++
++ private:
++  void EmitSilentBuffer(AudioDiscardHelper::TimeInfo time_info,
++                        base::TimeDelta duration);
++  base::TimeDelta DurationForFinalBuffer() const;
++
++  SEQUENCE_CHECKER(sequence_checker_);
++
++  bool initialized_ = false;
++  bool decode_finished_ = false;
++  AudioDecoderConfig config_;
++  OutputCB output_cb_;
++  std::unique_ptr<AudioDiscardHelper> discard_helper_;
++  std::optional<AudioDiscardHelper::TimeInfo> pending_time_info_;
++  base::TimeDelta last_duration_;
++};
++
++}  // namespace media
++
++#endif  // MEDIA_FILTERS_NULL_AUDIO_DECODER_H_
+diff --git a/media/filters/null_audio_decoder_unittest.cc b/media/filters/null_audio_decoder_unittest.cc
+new file mode 100644
+index 0000000000..6c8c3f3fe7
+--- /dev/null
++++ b/media/filters/null_audio_decoder_unittest.cc
+@@ -0,0 +1,197 @@
++// Copyright 2026 The Chromium Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "media/filters/null_audio_decoder.h"
++
++#include <array>
++#include <utility>
++#include <vector>
++
++#include "base/functional/bind.h"
++#include "base/functional/callback_helpers.h"
++#include "base/test/task_environment.h"
++#include "base/time/time.h"
++#include "media/base/audio_buffer.h"
++#include "media/base/audio_timestamp_helper.h"
++#include "media/base/decoder_buffer.h"
++#include "media/base/test_helpers.h"
++#include "media/base/timestamp_constants.h"
++#include "testing/gtest/include/gtest/gtest.h"
++
++namespace media {
++
++class NullAudioDecoderTest : public testing::Test {
++ public:
++  void Initialize(const AudioDecoderConfig& config,
++                  DecoderStatus::Codes expected_status) {
++    bool callback_called = false;
++    decoder_.Initialize(
++        config, /*cdm_context=*/nullptr,
++        base::BindOnce(
++            [](bool* callback_called, DecoderStatus::Codes expected_status,
++               DecoderStatus status) {
++              *callback_called = true;
++              EXPECT_EQ(status.code(), expected_status);
++            },
++            &callback_called, expected_status),
++        base::BindRepeating(&NullAudioDecoderTest::OnBuffer,
++                            base::Unretained(this)),
++        base::NullCallback());
++
++    EXPECT_FALSE(callback_called);
++    task_environment_.RunUntilIdle();
++    EXPECT_TRUE(callback_called);
++  }
++
++  DecoderStatus Decode(base::TimeDelta timestamp,
++                       base::TimeDelta duration = kNoTimestamp) {
++    constexpr std::array<uint8_t, 1> kData = {0};
++    scoped_refptr<DecoderBuffer> buffer = DecoderBuffer::CopyFrom(kData);
++    buffer->set_timestamp(timestamp);
++    buffer->set_duration(duration);
++    return DecodeBuffer(std::move(buffer));
++  }
++
++  DecoderStatus DecodeBuffer(scoped_refptr<DecoderBuffer> buffer) {
++    bool callback_called = false;
++    DecoderStatus decode_status(DecoderStatus::Codes::kFailed);
++    decoder_.Decode(std::move(buffer),
++                    base::BindOnce(
++                        [](bool* callback_called, DecoderStatus* decode_status,
++                           DecoderStatus status) {
++                          *callback_called = true;
++                          *decode_status = std::move(status);
++                        },
++                        &callback_called, &decode_status));
++
++    EXPECT_FALSE(callback_called);
++    task_environment_.RunUntilIdle();
++    EXPECT_TRUE(callback_called);
++    return decode_status;
++  }
++
++  void OnBuffer(scoped_refptr<AudioBuffer> buffer) {
++    buffers_.push_back(std::move(buffer));
++  }
++
++ protected:
++  base::test::SingleThreadTaskEnvironment task_environment_;
++  NullAudioDecoder decoder_;
++  std::vector<scoped_refptr<AudioBuffer>> buffers_;
++};
++
++TEST_F(NullAudioDecoderTest, AcceptsClearAudioConfig) {
++  Initialize(TestAudioConfig::Normal(), DecoderStatus::Codes::kOk);
++
++  EXPECT_EQ(decoder_.GetDecoderType(), AudioDecoderType::kNull);
++  // This ID was shipped in the M150 releases and is persisted in telemetry.
++  EXPECT_EQ(static_cast<int>(decoder_.GetDecoderType()), 12);
++  EXPECT_FALSE(decoder_.IsPlatformDecoder());
++  EXPECT_FALSE(decoder_.SupportsDecryption());
++}
++
++TEST_F(NullAudioDecoderTest, RejectsEncryptedConfig) {
++  Initialize(TestAudioConfig::NormalEncrypted(),
++             DecoderStatus::Codes::kUnsupportedEncryptionMode);
++  EXPECT_TRUE(buffers_.empty());
++}
++
++TEST_F(NullAudioDecoderTest, EmitsAllocationFreeSilentBufferWithExactTiming) {
++  const AudioDecoderConfig config = TestAudioConfig::Normal();
++  Initialize(config, DecoderStatus::Codes::kOk);
++
++  constexpr base::TimeDelta kTimestamp = base::Milliseconds(17);
++  constexpr base::TimeDelta kDuration = base::Milliseconds(20);
++  EXPECT_TRUE(Decode(kTimestamp, kDuration).is_ok());
++
++  ASSERT_EQ(buffers_.size(), 1u);
++  EXPECT_EQ(buffers_[0]->timestamp(), kTimestamp);
++  EXPECT_EQ(buffers_[0]->frame_count(),
++            AudioTimestampHelper::TimeToFrames(kDuration,
++                                               config.samples_per_second()));
++  EXPECT_EQ(buffers_[0]->sample_rate(), config.samples_per_second());
++  EXPECT_EQ(buffers_[0]->channel_count(), config.channels());
++  EXPECT_EQ(buffers_[0]->channel_layout(), config.channel_layout());
++  EXPECT_EQ(buffers_[0]->data_size(), 0u);
++}
++
++TEST_F(NullAudioDecoderTest, InfersUnknownDurationFromNextTimestamp) {
++  const AudioDecoderConfig config = TestAudioConfig::Normal();
++  Initialize(config, DecoderStatus::Codes::kOk);
++
++  constexpr base::TimeDelta kFirstTimestamp = base::Milliseconds(100);
++  constexpr base::TimeDelta kSecondTimestamp = base::Milliseconds(125);
++  EXPECT_TRUE(Decode(kFirstTimestamp).is_ok());
++  EXPECT_TRUE(buffers_.empty());
++
++  EXPECT_TRUE(Decode(kSecondTimestamp).is_ok());
++  ASSERT_EQ(buffers_.size(), 1u);
++  EXPECT_EQ(buffers_[0]->timestamp(), kFirstTimestamp);
++  EXPECT_EQ(buffers_[0]->frame_count(), AudioTimestampHelper::TimeToFrames(
++                                            kSecondTimestamp - kFirstTimestamp,
++                                            config.samples_per_second()));
++
++  EXPECT_TRUE(DecodeBuffer(DecoderBuffer::CreateEOSBuffer()).is_ok());
++  ASSERT_EQ(buffers_.size(), 2u);
++  EXPECT_EQ(buffers_[1]->frame_count(), buffers_[0]->frame_count());
++}
++
++TEST_F(NullAudioDecoderTest, EndOfStreamFlushesOnlyPendingMetadata) {
++  const AudioDecoderConfig config = TestAudioConfig::Normal();
++  Initialize(config, DecoderStatus::Codes::kOk);
++
++  EXPECT_TRUE(Decode(base::Milliseconds(10)).is_ok());
++  EXPECT_TRUE(buffers_.empty());
++  EXPECT_TRUE(DecodeBuffer(DecoderBuffer::CreateEOSBuffer()).is_ok());
++
++  ASSERT_EQ(buffers_.size(), 1u);
++  EXPECT_EQ(buffers_[0]->frame_count(),
++            AudioTimestampHelper::TimeToFrames(base::Milliseconds(20),
++                                               config.samples_per_second()));
++
++  EXPECT_TRUE(Decode(base::Milliseconds(30), base::Milliseconds(20)).is_ok());
++  EXPECT_EQ(buffers_.size(), 1u);
++}
++
++TEST_F(NullAudioDecoderTest, RejectsMissingTimestamp) {
++  Initialize(TestAudioConfig::Normal(), DecoderStatus::Codes::kOk);
++  EXPECT_EQ(Decode(kNoTimestamp, base::Milliseconds(20)).code(),
++            DecoderStatus::Codes::kFailed);
++  EXPECT_TRUE(buffers_.empty());
++}
++
++TEST_F(NullAudioDecoderTest, ResetClearsPendingAndEndOfStreamState) {
++  Initialize(TestAudioConfig::Normal(), DecoderStatus::Codes::kOk);
++  EXPECT_TRUE(Decode(base::Milliseconds(10)).is_ok());
++  EXPECT_TRUE(DecodeBuffer(DecoderBuffer::CreateEOSBuffer()).is_ok());
++  ASSERT_EQ(buffers_.size(), 1u);
++
++  bool reset_called = false;
++  decoder_.Reset(base::BindOnce(
++      [](bool* reset_called) { *reset_called = true; }, &reset_called));
++  EXPECT_FALSE(reset_called);
++  task_environment_.RunUntilIdle();
++  EXPECT_TRUE(reset_called);
++
++  EXPECT_TRUE(Decode(base::Milliseconds(100), base::Milliseconds(10)).is_ok());
++  ASSERT_EQ(buffers_.size(), 2u);
++  EXPECT_EQ(buffers_[1]->timestamp(), base::Milliseconds(100));
++}
++
++TEST_F(NullAudioDecoderTest, ReinitializeUpdatesSampleRate) {
++  Initialize(TestAudioConfig::Normal(), DecoderStatus::Codes::kOk);
++  EXPECT_TRUE(Decode(base::Milliseconds(0), base::Milliseconds(10)).is_ok());
++
++  const AudioDecoderConfig high_rate = TestAudioConfig::HighSampleRate();
++  Initialize(high_rate, DecoderStatus::Codes::kOk);
++  EXPECT_TRUE(Decode(base::Milliseconds(20), base::Milliseconds(10)).is_ok());
++
++  ASSERT_EQ(buffers_.size(), 2u);
++  EXPECT_EQ(buffers_[1]->sample_rate(), high_rate.samples_per_second());
++  EXPECT_EQ(buffers_[1]->frame_count(),
++            AudioTimestampHelper::TimeToFrames(base::Milliseconds(10),
++                                               high_rate.samples_per_second()));
++}
++
++}  // namespace media
+diff --git a/media/filters/null_video_decoder.cc b/media/filters/null_video_decoder.cc
+new file mode 100644
+index 0000000000..a64b3cd840
+--- /dev/null
++++ b/media/filters/null_video_decoder.cc
+@@ -0,0 +1,97 @@
++// Copyright 2026 The Chromium Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "media/filters/null_video_decoder.h"
++
++#include <utility>
++
++#include "base/check.h"
++#include "base/task/bind_post_task.h"
++#include "media/base/decoder_buffer.h"
++
++namespace media {
++
++NullVideoDecoder::NullVideoDecoder() {
++  DETACH_FROM_SEQUENCE(sequence_checker_);
++}
++
++NullVideoDecoder::~NullVideoDecoder() {
++  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
++}
++
++VideoDecoderType NullVideoDecoder::GetDecoderType() const {
++  return VideoDecoderType::kNull;
++}
++
++void NullVideoDecoder::Initialize(const VideoDecoderConfig& config,
++                                  bool /*low_delay*/,
++                                  CdmContext* /*cdm_context*/,
++                                  InitCB init_cb,
++                                  const OutputCB& output_cb,
++                                  const WaitingCB& /*waiting_cb*/) {
++  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
++  DCHECK(config.IsValidConfig());
++  DCHECK(output_cb);
++
++  InitCB bound_init_cb = base::BindPostTaskToCurrentDefault(std::move(init_cb));
++
++  initialized_ = false;
++  output_cb_.Reset();
++  if (config.is_encrypted()) {
++    // Returning Unsupported forces Chrome to use its own decryption logic. It
++    // then creates another NullVideoDecoder with the now unencrypted config.
++    std::move(bound_init_cb)
++        .Run(DecoderStatus::Codes::kUnsupportedEncryptionMode);
++    return;
++  }
++
++  // Keep the decoded frame geometry consistent with the demuxer config. The
++  // backing allocation is shared by every output frame for this coded size.
++  if (!black_frame_ || black_frame_->coded_size() != config.coded_size()) {
++    black_frame_ = VideoFrame::CreateBlackFrame(config.coded_size());
++    CHECK(black_frame_);
++  }
++
++  config_ = config;
++  output_cb_ = output_cb;
++  initialized_ = true;
++  decode_finished_ = false;
++  std::move(bound_init_cb).Run(DecoderStatus::Codes::kOk);
++}
++
++void NullVideoDecoder::Decode(scoped_refptr<DecoderBuffer> buffer,
++                              DecodeCB decode_cb) {
++  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
++  CHECK(initialized_);
++  CHECK(buffer);
++
++  DecodeCB bound_decode_cb =
++      base::BindPostTaskToCurrentDefault(std::move(decode_cb));
++  if (decode_finished_ || buffer->end_of_stream()) {
++    decode_finished_ = true;
++    std::move(bound_decode_cb).Run(DecoderStatus::Codes::kOk);
++    return;
++  }
++
++  scoped_refptr<VideoFrame> output = VideoFrame::WrapVideoFrame(
++      black_frame_, black_frame_->format(), config_.visible_rect(),
++      config_.natural_size());
++  CHECK(output);
++  output->set_timestamp(buffer->timestamp());
++  if (config_.color_space_info().IsSpecified()) {
++    output->set_color_space(config_.color_space_info().ToGfxColorSpace());
++  }
++  output->set_hdr_metadata(config_.hdr_metadata());
++
++  output_cb_.Run(std::move(output));
++  std::move(bound_decode_cb).Run(DecoderStatus::Codes::kOk);
++}
++
++void NullVideoDecoder::Reset(base::OnceClosure reset_cb) {
++  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
++  decode_finished_ = false;
++  base::BindPostTaskToCurrentDefault(std::move(reset_cb)).Run();
++}
++
++}  // namespace media
+diff --git a/media/filters/null_video_decoder.h b/media/filters/null_video_decoder.h
+new file mode 100644
+index 0000000000..212e4ab5d0
+--- /dev/null
++++ b/media/filters/null_video_decoder.h
+@@ -0,0 +1,50 @@
++// Copyright 2026 The Chromium Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef MEDIA_FILTERS_NULL_VIDEO_DECODER_H_
++#define MEDIA_FILTERS_NULL_VIDEO_DECODER_H_
++
++#include "base/sequence_checker.h"
++#include "media/base/video_decoder.h"
++#include "media/base/video_decoder_config.h"
++#include "media/base/video_frame.h"
++
++namespace media {
++
++// A lightweight decoder that ignores compressed input and emits black frames
++// with the input timestamps. This keeps the media timeline and renderer state
++// moving without performing codec decoding.
++class MEDIA_EXPORT NullVideoDecoder final : public VideoDecoder {
++ public:
++  NullVideoDecoder();
++
++  NullVideoDecoder(const NullVideoDecoder&) = delete;
++  NullVideoDecoder& operator=(const NullVideoDecoder&) = delete;
++
++  ~NullVideoDecoder() override;
++
++  // VideoDecoder implementation.
++  VideoDecoderType GetDecoderType() const override;
++  void Initialize(const VideoDecoderConfig& config,
++                  bool low_delay,
++                  CdmContext* cdm_context,
++                  InitCB init_cb,
++                  const OutputCB& output_cb,
++                  const WaitingCB& waiting_cb) override;
++  void Decode(scoped_refptr<DecoderBuffer> buffer, DecodeCB decode_cb) override;
++  void Reset(base::OnceClosure reset_cb) override;
++
++ private:
++  SEQUENCE_CHECKER(sequence_checker_);
++
++  bool initialized_ = false;
++  bool decode_finished_ = false;
++  VideoDecoderConfig config_;
++  OutputCB output_cb_;
++  scoped_refptr<VideoFrame> black_frame_;
++};
++
++}  // namespace media
++
++#endif  // MEDIA_FILTERS_NULL_VIDEO_DECODER_H_
+diff --git a/media/filters/null_video_decoder_unittest.cc b/media/filters/null_video_decoder_unittest.cc
+new file mode 100644
+index 0000000000..a1c3a60134
+--- /dev/null
++++ b/media/filters/null_video_decoder_unittest.cc
+@@ -0,0 +1,186 @@
++// Copyright 2026 The Chromium Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "media/filters/null_video_decoder.h"
++
++#include <array>
++#include <utility>
++#include <vector>
++
++#include "base/functional/bind.h"
++#include "base/functional/callback_helpers.h"
++#include "base/run_loop.h"
++#include "base/test/task_environment.h"
++#include "base/time/time.h"
++#include "media/base/decoder_buffer.h"
++#include "media/base/test_helpers.h"
++#include "media/base/video_frame.h"
++#include "testing/gtest/include/gtest/gtest.h"
++
++namespace media {
++
++class NullVideoDecoderTest : public testing::Test {
++ public:
++  void Initialize(const VideoDecoderConfig& config,
++                  DecoderStatus::Codes expected_status) {
++    bool callback_called = false;
++    decoder_.Initialize(
++        config, /*low_delay=*/false, /*cdm_context=*/nullptr,
++        base::BindOnce(
++            [](bool* callback_called, DecoderStatus::Codes expected_status,
++               DecoderStatus status) {
++              *callback_called = true;
++              EXPECT_EQ(status.code(), expected_status);
++            },
++            &callback_called, expected_status),
++        base::BindRepeating(&NullVideoDecoderTest::OnFrame,
++                            base::Unretained(this)),
++        base::NullCallback());
++
++    EXPECT_FALSE(callback_called);
++    task_environment_.RunUntilIdle();
++    EXPECT_TRUE(callback_called);
++  }
++
++  DecoderStatus Decode(base::TimeDelta timestamp) {
++    constexpr std::array<uint8_t, 1> kData = {0};
++    scoped_refptr<DecoderBuffer> buffer = DecoderBuffer::CopyFrom(kData);
++    buffer->set_timestamp(timestamp);
++    return DecodeBuffer(std::move(buffer));
++  }
++
++  DecoderStatus DecodeBuffer(scoped_refptr<DecoderBuffer> buffer) {
++    bool callback_called = false;
++    DecoderStatus decode_status(DecoderStatus::Codes::kFailed);
++    decoder_.Decode(std::move(buffer),
++                    base::BindOnce(
++                        [](bool* callback_called, DecoderStatus* decode_status,
++                           DecoderStatus status) {
++                          *callback_called = true;
++                          *decode_status = std::move(status);
++                        },
++                        &callback_called, &decode_status));
++
++    EXPECT_FALSE(callback_called);
++    task_environment_.RunUntilIdle();
++    EXPECT_TRUE(callback_called);
++    return decode_status;
++  }
++
++  void OnFrame(scoped_refptr<VideoFrame> frame) {
++    frames_.push_back(std::move(frame));
++  }
++
++ protected:
++  base::test::SingleThreadTaskEnvironment task_environment_;
++  NullVideoDecoder decoder_;
++  std::vector<scoped_refptr<VideoFrame>> frames_;
++};
++
++TEST_F(NullVideoDecoderTest, AcceptsClearVideoConfigs) {
++  for (VideoCodec codec :
++       {VideoCodec::kH264, VideoCodec::kHEVC, VideoCodec::kAV1,
++        VideoCodec::kVP8, VideoCodec::kVP9}) {
++    Initialize(TestVideoConfig::Normal(codec), DecoderStatus::Codes::kOk);
++  }
++
++  EXPECT_EQ(decoder_.GetDecoderType(), VideoDecoderType::kNull);
++  EXPECT_FALSE(decoder_.IsPlatformDecoder());
++  EXPECT_FALSE(decoder_.SupportsDecryption());
++  EXPECT_EQ(decoder_.GetMaxDecodeRequests(), 1);
++}
++
++TEST_F(NullVideoDecoderTest, RejectsEncryptedConfig) {
++  Initialize(TestVideoConfig::NormalEncrypted(VideoCodec::kH264),
++             DecoderStatus::Codes::kUnsupportedEncryptionMode);
++  EXPECT_TRUE(frames_.empty());
++}
++
++TEST_F(NullVideoDecoderTest, EmitsTimestampedSharedBlackFramesWithConfigSize) {
++  const VideoDecoderConfig config = TestVideoConfig::NormalWithColorSpace(
++      VideoCodec::kH264, VideoColorSpace::REC709());
++  Initialize(config, DecoderStatus::Codes::kOk);
++
++  constexpr base::TimeDelta kFirstTimestamp = base::Milliseconds(17);
++  constexpr base::TimeDelta kSecondTimestamp = base::Milliseconds(50);
++  EXPECT_TRUE(Decode(kFirstTimestamp).is_ok());
++  EXPECT_TRUE(Decode(kSecondTimestamp).is_ok());
++
++  ASSERT_EQ(frames_.size(), 2u);
++  EXPECT_NE(frames_[0].get(), frames_[1].get());
++  EXPECT_EQ(frames_[0]->timestamp(), kFirstTimestamp);
++  EXPECT_EQ(frames_[1]->timestamp(), kSecondTimestamp);
++  EXPECT_EQ(frames_[0]->format(), PIXEL_FORMAT_I420);
++  EXPECT_EQ(frames_[0]->coded_size(), config.coded_size());
++  EXPECT_EQ(frames_[0]->visible_rect(), config.visible_rect());
++  EXPECT_EQ(frames_[0]->natural_size(), config.natural_size());
++  EXPECT_EQ(frames_[0]->ColorSpace(),
++            config.color_space_info().ToGfxColorSpace());
++  EXPECT_EQ(frames_[0]->hdr_metadata(), config.hdr_metadata());
++
++  EXPECT_EQ(frames_[0]->data(VideoFrame::Plane::kY),
++            frames_[1]->data(VideoFrame::Plane::kY));
++  EXPECT_EQ(frames_[0]->data(VideoFrame::Plane::kU),
++            frames_[1]->data(VideoFrame::Plane::kU));
++  EXPECT_EQ(frames_[0]->data(VideoFrame::Plane::kV),
++            frames_[1]->data(VideoFrame::Plane::kV));
++  EXPECT_EQ(frames_[0]->data(VideoFrame::Plane::kY)[0], 0u);
++  EXPECT_EQ(frames_[0]->data(VideoFrame::Plane::kU)[0], 0x80u);
++  EXPECT_EQ(frames_[0]->data(VideoFrame::Plane::kV)[0], 0x80u);
++}
++
++TEST_F(NullVideoDecoderTest, EndOfStreamDoesNotEmitFrame) {
++  Initialize(TestVideoConfig::Normal(VideoCodec::kAV1),
++             DecoderStatus::Codes::kOk);
++  EXPECT_TRUE(Decode(base::Milliseconds(10)).is_ok());
++  ASSERT_EQ(frames_.size(), 1u);
++
++  EXPECT_TRUE(DecodeBuffer(DecoderBuffer::CreateEOSBuffer()).is_ok());
++  EXPECT_EQ(frames_.size(), 1u);
++
++  EXPECT_TRUE(Decode(base::Milliseconds(20)).is_ok());
++  EXPECT_EQ(frames_.size(), 1u);
++}
++
++TEST_F(NullVideoDecoderTest, ReinitializeUpdatesNaturalSize) {
++  Initialize(TestVideoConfig::Normal(VideoCodec::kH264),
++             DecoderStatus::Codes::kOk);
++  EXPECT_TRUE(Decode(base::Milliseconds(10)).is_ok());
++
++  const VideoDecoderConfig large_config =
++      TestVideoConfig::Large(VideoCodec::kAV1);
++  Initialize(large_config, DecoderStatus::Codes::kOk);
++  EXPECT_TRUE(Decode(base::Milliseconds(20)).is_ok());
++
++  ASSERT_EQ(frames_.size(), 2u);
++  EXPECT_EQ(frames_[1]->natural_size(), large_config.natural_size());
++  EXPECT_EQ(frames_[1]->coded_size(), large_config.coded_size());
++  EXPECT_EQ(frames_[1]->visible_rect(), large_config.visible_rect());
++}
++
++TEST_F(NullVideoDecoderTest, ResetCallbackIsAsynchronous) {
++  Initialize(TestVideoConfig::Normal(VideoCodec::kVP9),
++             DecoderStatus::Codes::kOk);
++
++  bool callback_called = false;
++  decoder_.Reset(
++      base::BindOnce([](bool* callback_called) { *callback_called = true; },
++                     &callback_called));
++  EXPECT_FALSE(callback_called);
++  task_environment_.RunUntilIdle();
++  EXPECT_TRUE(callback_called);
++}
++
++TEST_F(NullVideoDecoderTest, ResetClearsEndOfStreamState) {
++  Initialize(TestVideoConfig::Normal(VideoCodec::kVP9),
++             DecoderStatus::Codes::kOk);
++  EXPECT_TRUE(DecodeBuffer(DecoderBuffer::CreateEOSBuffer()).is_ok());
++
++  decoder_.Reset(base::DoNothing());
++  task_environment_.RunUntilIdle();
++  EXPECT_TRUE(Decode(base::Milliseconds(20)).is_ok());
++  EXPECT_EQ(frames_.size(), 1u);
++}
++
++}  // namespace media
+diff --git a/media/media_options.gni b/media/media_options.gni
+index dd17545146..bf8c7b2ae1 100644
+--- a/media/media_options.gni
++++ b/media/media_options.gni
+@@ -111,6 +111,14 @@ declare_args() {
+ 
+   enable_dav1d_decoder = use_blink
+ 
++  # Replace all video decoders created by DefaultDecoderFactory with a
++  # lightweight decoder that emits synthetic black frames.
++  enable_simulated_video_decode = false
++
++  # Replace all audio decoders created by DefaultDecoderFactory with a
++  # lightweight decoder that emits silent, allocation-free audio buffers.
++  enable_simulated_audio_decode = false
++
+   # Enable browser managed persistent metadata storage for EME persistent
+   # session.
+   enable_media_drm_storage = is_android || is_castos
+diff --git a/media/renderers/BUILD.gn b/media/renderers/BUILD.gn
+index 35d163717e..7ae6d07347 100644
+--- a/media/renderers/BUILD.gn
++++ b/media/renderers/BUILD.gn
+@@ -82,6 +82,11 @@ source_set("unit_tests") {
+     "renderer_impl_unittest.cc",
+     "video_renderer_impl_unittest.cc",
+   ]
++
++  if (media_use_iamf_tools || enable_simulated_video_decode ||
++      enable_simulated_audio_decode) {
++    sources += [ "default_decoder_factory_unittest.cc" ]
++  }
+   configs += [ "//media:media_config" ]
+   deps = [
+     "//base",
+@@ -109,7 +114,4 @@ source_set("unit_tests") {
+     }
+   }
+ 
+-  if (media_use_iamf_tools) {
+-    sources += [ "default_decoder_factory_unittest.cc" ]
+-  }
+ }
+diff --git a/media/renderers/default_decoder_factory.cc b/media/renderers/default_decoder_factory.cc
+index 3a21525799..b0db0155e5 100644
+--- a/media/renderers/default_decoder_factory.cc
++++ b/media/renderers/default_decoder_factory.cc
+@@ -40,6 +40,14 @@
+ #include "media/filters/ffmpeg_video_decoder.h"
+ #endif
+ 
++#if BUILDFLAG(ENABLE_SIMULATED_AUDIO_DECODE)
++#include "media/filters/null_audio_decoder.h"
++#endif
++
++#if BUILDFLAG(ENABLE_SIMULATED_VIDEO_DECODE)
++#include "media/filters/null_video_decoder.h"
++#endif
++
+ #if BUILDFLAG(ENABLE_LIBVPX)
+ #include "media/filters/vpx_video_decoder.h"
+ #endif
+@@ -68,6 +76,9 @@ void DefaultDecoderFactory::CreateAudioDecoders(
+   if (is_shutdown_)
+     return;
+ 
++#if BUILDFLAG(ENABLE_SIMULATED_AUDIO_DECODE)
++  audio_decoders->push_back(std::make_unique<NullAudioDecoder>());
++#else
+ #if !BUILDFLAG(IS_ANDROID)
+   // DecryptingAudioDecoder is only needed in External Clear Key testing to
+   // cover the audio decrypt-and-decode path.
+@@ -112,6 +123,7 @@ void DefaultDecoderFactory::CreateAudioDecoders(
+     external_decoder_factory_->CreateAudioDecoders(task_runner, media_log,
+                                                    audio_decoders);
+   }
++#endif  // BUILDFLAG(ENABLE_SIMULATED_AUDIO_DECODE)
+ }
+ 
+ void DefaultDecoderFactory::CreateVideoDecoders(
+@@ -127,10 +139,16 @@ void DefaultDecoderFactory::CreateVideoDecoders(
+   }
+ 
+ #if !BUILDFLAG(IS_ANDROID)
++  // Some CDMs require decrypt-and-decode for protected video. Keep this path
++  // even when clear video decoding is simulated; the null sink still consumes
++  // the decoded frames without sending them to the compositor.
+   video_decoders->push_back(
+       std::make_unique<DecryptingVideoDecoder>(task_runner, media_log));
+ #endif
+ 
++#if BUILDFLAG(ENABLE_SIMULATED_VIDEO_DECODE)
++  video_decoders->push_back(std::make_unique<NullVideoDecoder>());
++#else
+   // Prefer an external decoder since one will only exist if it is hardware
+   // accelerated.
+   if (external_decoder_factory_ && gpu_factories &&
+@@ -158,6 +176,7 @@ void DefaultDecoderFactory::CreateVideoDecoders(
+   video_decoders->push_back(
+       std::make_unique<FFmpegVideoDecoder>(media_log->Clone()));
+ #endif
++#endif  // BUILDFLAG(ENABLE_SIMULATED_VIDEO_DECODE)
+ }
+ 
+ base::WeakPtr<DecoderFactory> DefaultDecoderFactory::GetWeakPtr() {
+diff --git a/media/renderers/default_decoder_factory_unittest.cc b/media/renderers/default_decoder_factory_unittest.cc
+index 24e9d3faad..68200b1076 100644
+--- a/media/renderers/default_decoder_factory_unittest.cc
++++ b/media/renderers/default_decoder_factory_unittest.cc
+@@ -8,12 +8,18 @@
+ #include <memory>
+ #include <vector>
+ 
++#include "base/functional/callback_helpers.h"
+ #include "base/test/scoped_feature_list.h"
+ #include "base/test/task_environment.h"
++#include "build/build_config.h"
+ #include "media/base/audio_decoder.h"
++#include "media/base/decoder.h"
+ #include "media/base/media_switches.h"
+ #include "media/base/media_util.h"
++#include "media/base/video_decoder.h"
++#include "media/media_buildflags.h"
+ #include "testing/gtest/include/gtest/gtest.h"
++#include "ui/gfx/color_space.h"
+ 
+ namespace media {
+ 
+@@ -34,6 +40,7 @@ class DefaultDecoderFactoryTest : public testing::Test {
+   NullMediaLog media_log_;
+ };
+ 
++#if BUILDFLAG(ENABLE_IAMF_TOOLS) && !BUILDFLAG(ENABLE_SIMULATED_AUDIO_DECODE)
+ TEST_F(DefaultDecoderFactoryTest, IamfDecoderTracksFeatureState) {
+   {
+     base::test::ScopedFeatureList scoped_feature_list;
+@@ -47,5 +54,45 @@ TEST_F(DefaultDecoderFactoryTest, IamfDecoderTracksFeatureState) {
+     EXPECT_TRUE(CreatesIamfAudioDecoder());
+   }
+ }
++#endif
++
++#if BUILDFLAG(ENABLE_SIMULATED_VIDEO_DECODE)
++TEST_F(DefaultDecoderFactoryTest, SimulatedBuildPreservesCdmVideoDecoder) {
++  NullMediaLog media_log;
++  DefaultDecoderFactory factory(/*external_decoder_factory=*/nullptr);
++  std::vector<std::unique_ptr<VideoDecoder>> decoders;
++
++  factory.CreateVideoDecoders(
++      base::SequencedTaskRunner::GetCurrentDefault(), /*gpu_factories=*/nullptr,
++      &media_log, base::NullCallback(), gfx::ColorSpace(), &decoders);
++
++#if BUILDFLAG(IS_ANDROID)
++  ASSERT_EQ(decoders.size(), 1u);
++#else
++  ASSERT_EQ(decoders.size(), 2u);
++  EXPECT_EQ(decoders.front()->GetDecoderType(), VideoDecoderType::kDecrypting);
++  EXPECT_TRUE(decoders.front()->SupportsDecryption());
++#endif
++  EXPECT_EQ(decoders.back()->GetDecoderType(), VideoDecoderType::kNull);
++  EXPECT_FALSE(decoders.back()->IsPlatformDecoder());
++  EXPECT_FALSE(decoders.back()->SupportsDecryption());
++}
++#endif
++
++#if BUILDFLAG(ENABLE_SIMULATED_AUDIO_DECODE)
++TEST_F(DefaultDecoderFactoryTest, SimulatedBuildExposesOnlyNullAudioDecoder) {
++  NullMediaLog media_log;
++  DefaultDecoderFactory factory(/*external_decoder_factory=*/nullptr);
++  std::vector<std::unique_ptr<AudioDecoder>> decoders;
++
++  factory.CreateAudioDecoders(base::SequencedTaskRunner::GetCurrentDefault(),
++                              &media_log, &decoders);
++
++  ASSERT_EQ(decoders.size(), 1u);
++  EXPECT_EQ(decoders.front()->GetDecoderType(), AudioDecoderType::kNull);
++  EXPECT_FALSE(decoders.front()->IsPlatformDecoder());
++  EXPECT_FALSE(decoders.front()->SupportsDecryption());
++}
++#endif
+ 
+ }  // namespace media
+diff --git a/media/renderers/renderer_impl_factory.cc b/media/renderers/renderer_impl_factory.cc
+index d7b024919a..bf26d66408 100644
+--- a/media/renderers/renderer_impl_factory.cc
++++ b/media/renderers/renderer_impl_factory.cc
+@@ -9,10 +9,14 @@
+ 
+ #include "base/functional/bind.h"
+ #include "base/task/sequenced_task_runner.h"
++#include "base/time/time.h"
+ #include "build/build_config.h"
++#include "media/audio/null_audio_sink.h"
+ #include "media/base/audio_buffer.h"
+ #include "media/base/decoder_factory.h"
++#include "media/base/null_video_sink.h"
+ #include "media/gfx/mappable_shared_image_video_frame_pool.h"
++#include "media/media_buildflags.h"
+ #include "media/renderers/audio_renderer_impl.h"
+ #include "media/renderers/renderer_impl.h"
+ #include "media/renderers/video_renderer_impl.h"
+@@ -86,6 +90,28 @@ std::unique_ptr<Renderer> RendererImplFactory::CreateRenderer(
+     const gfx::ColorSpace& target_color_space) {
+   DCHECK(audio_renderer_sink);
+ 
++#if BUILDFLAG(ENABLE_SIMULATED_AUDIO_DECODE)
++  // Keep AudioRendererImpl's normal clock, buffering, and end-of-stream
++  // behavior, but avoid opening a device or passing samples to the audio
++  // service.
++  if (!null_audio_sink_) {
++    null_audio_sink_ = base::MakeRefCounted<NullAudioSink>(media_task_runner);
++  }
++  audio_renderer_sink = null_audio_sink_.get();
++#endif
++
++#if BUILDFLAG(ENABLE_SIMULATED_VIDEO_DECODE)
++  // Preserve VideoRendererImpl's normal timestamp, buffering, and end-of-stream
++  // behavior while consuming its frames before they reach Blink/Viz. Reuse the
++  // sink if a renderer is recreated after a fallback.
++  if (!null_video_sink_) {
++    null_video_sink_ = std::make_unique<NullVideoSink>(
++        /*clockless=*/false, base::Hertz(60), NullVideoSink::NewFrameCB(),
++        media_task_runner);
++  }
++  video_renderer_sink = null_video_sink_.get();
++#endif
++
+   std::unique_ptr<AudioRenderer> audio_renderer(new AudioRendererImpl(
+       media_task_runner, audio_renderer_sink,
+       // Unretained is safe here, because the RendererFactory is guaranteed to
+diff --git a/media/renderers/renderer_impl_factory.h b/media/renderers/renderer_impl_factory.h
+index d76f05e8aa..3dc29fb14d 100644
+--- a/media/renderers/renderer_impl_factory.h
++++ b/media/renderers/renderer_impl_factory.h
+@@ -28,6 +28,8 @@ class AudioRendererSink;
+ class DecoderFactory;
+ class GpuVideoAcceleratorFactories;
+ class MediaLog;
++class NullAudioSink;
++class NullVideoSink;
+ class VideoDecoder;
+ class VideoRendererSink;
+ 
+@@ -80,6 +82,16 @@ class MEDIA_EXPORT RendererImplFactory final : public RendererFactory {
+ 
+   const std::unique_ptr<MediaLog> media_log_;
+ 
++  // Owns the timestamp-consuming sink used by simulated builds. The renderer
++  // only keeps a raw pointer to its sink, so the factory must retain it for the
++  // renderer's lifetime.
++  std::unique_ptr<NullVideoSink> null_video_sink_;
++
++  // Owns the renderer-driven silent sink used by simulated audio builds.
++  // AudioRendererImpl retains a reference, while this reference allows reuse
++  // if the renderer is recreated after a fallback.
++  scoped_refptr<NullAudioSink> null_audio_sink_;
++
+   // Factory to create extra audio and video decoders.
+   // Could be nullptr if not extra decoders are available.
+   raw_ptr<DecoderFactory, DanglingUntriaged> decoder_factory_;
+diff --git a/tools/metrics/histograms/enums.xml b/tools/metrics/histograms/enums.xml
+index 43d58c479d..ddba634766 100644
+--- a/tools/metrics/histograms/enums.xml
++++ b/tools/metrics/histograms/enums.xml
+@@ -519,6 +519,8 @@ uploading your change for review.  These are checked by presubmit scripts.
+   <int value="8" label="kMediaFoundation"/>
+   <int value="9" label="kPassthroughDTS"/>
+   <int value="10" label="kSymphonia"/>
++  <int value="12" label="kNull"/>
++  <int value="13" label="kIamf"/>
+ </enum>
+ 
+ <enum name="AudioEffectType">
+@@ -28643,6 +28645,7 @@ Called by update_net_error_codes.py.-->
+   <int value="16" label="V4l2 Video Decoder"/>
+   <int value="18" label="OOP Video Decoder"/>
+   <int value="19" label="VideoToolbox Video Decoder"/>
++  <int value="20" label="Null Video Decoder"/>
+ </enum>
+ 
+ <enum name="VideoEncoderUseCase">

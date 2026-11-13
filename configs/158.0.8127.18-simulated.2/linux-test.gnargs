@@ -1,0 +1,9 @@
+is_debug = true
+is_component_build = true
+symbol_level = 0
+proprietary_codecs = true
+ffmpeg_branding = "Chrome"
+enable_widevine = true
+bundle_widevine_cdm = false
+enable_simulated_video_decode = true
+enable_simulated_audio_decode = true

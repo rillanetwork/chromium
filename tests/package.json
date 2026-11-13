@@ -1,0 +1,9 @@
+{
+  "name": "rillanetwork-chromium-release-tests",
+  "private": true,
+  "version": "1.0.0",
+  "dependencies": {
+    "playwright-core": "1.65.0",
+    "shaka-player": "5.3.4"
+  }
+}

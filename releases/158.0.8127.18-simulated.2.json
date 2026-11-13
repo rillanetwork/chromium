@@ -1,0 +1,53 @@
+{
+  "schema": 1,
+  "chromium_version": "158.0.8127.18",
+  "revision": 2,
+  "upstream_tag": "158.0.8127.18",
+  "upstream_commit": "6449d9f9a6a906edff724b7b220199b3fde4615c",
+  "expected_tree": "a0c04974435b6c20157a735bac4da2cc27fa82c3",
+  "exported_from": "d3ce0aed26dde43c38f1aeba33c4609784b32698",
+  "series": "patches/158.0.8127.18-simulated.2/series",
+  "patches": [
+    {
+      "path": "patches/158.0.8127.18-simulated.2/0001-simulated-media.patch",
+      "sha256": "d110fd7e053a5880b4d57b62f8b55e37224eeb52680500977702b4c0b52ff3f8"
+    },
+    {
+      "path": "patches/158.0.8127.18-simulated.2/0002-webcodecs.patch",
+      "sha256": "ef2fc5dd16e4c4ee476151f295c5859669c523e42aed360a1c903ce31e51348c"
+    },
+    {
+      "path": "patches/158.0.8127.18-simulated.2/0003-headless-widevine.patch",
+      "sha256": "74aa17da85aa8dcf212ea06fe9d14baeb5cf91417a907080f2e4f28e63c20e9f"
+    }
+  ],
+  "configs": {
+    "release": {
+      "path": "configs/158.0.8127.18-simulated.2/linux-release.gnargs",
+      "sha256": "dfd8cfd95780f21f8589c6376ca53459db5ce28ee90ef41e0237e328a04f7217"
+    },
+    "test": {
+      "path": "configs/158.0.8127.18-simulated.2/linux-test.gnargs",
+      "sha256": "30f71893e354fda24e7d7584df5c7de705ee9f2556f78ea944752ca8fde574ca"
+    }
+  },
+  "architectures": [
+    "x64",
+    "arm64"
+  ],
+  "deliverables": [
+    "chrome-deb",
+    "headless-tar"
+  ],
+  "required_checks": [
+    "chrome-media",
+    "compatibility",
+    "media-unit",
+    "shell-media",
+    "widevine-avc1",
+    "widevine-vp9"
+  ],
+  "playwright": "1.65.0",
+  "shaka": "5.3.4",
+  "validation_scope": "Software Widevine temporary sessions; no video presentation; native target runtime required."
+}
