@@ -39,7 +39,7 @@ class DefaultDecoderFactoryTest : public testing::Test {
   NullMediaLog media_log_;
 };
 
-#if BUILDFLAG(ENABLE_IAMF_DECODER) && !BUILDFLAG(ENABLE_SIMULATED_AUDIO_DECODE)
+#if BUILDFLAG(ENABLE_IAMF_TOOLS) && !BUILDFLAG(ENABLE_SIMULATED_AUDIO_DECODE)
 TEST_F(DefaultDecoderFactoryTest, IamfDecoderTracksFeatureState) {
   {
     base::test::ScopedFeatureList scoped_feature_list;
@@ -53,7 +53,6 @@ TEST_F(DefaultDecoderFactoryTest, IamfDecoderTracksFeatureState) {
     EXPECT_TRUE(CreatesIamfAudioDecoder());
   }
 }
-
 #endif
 
 #if BUILDFLAG(ENABLE_SIMULATED_VIDEO_DECODE)

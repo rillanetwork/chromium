@@ -333,3 +333,29 @@ workarounds.
   implementation for comparison; it is not the release base.
 
 The M150 combined focused media filter passes all 51 selected tests.
+
+## Playwright 1.65 update
+
+The local `simulated-video-decode-m158` port is based on Chromium
+`158.0.8127.18`, the exact browser version in Playwright 1.65.0's
+[`browsers.json`](https://github.com/microsoft/playwright/blob/v1.65.0/packages/playwright-core/browsers.json).
+It replays the five M150 fork commits; it does not use the fork's moving `main`.
+
+M158 adds upstream IAMF decoder tests and assigns audio decoder enum value 12
+to IAMF. The port retains that upstream value and uses 13 for the null audio
+decoder, with a matching histogram entry. M150's null audio value was 12;
+telemetry from the two custom releases must be interpreted with their version.
+The decoder-factory tests retain the upstream IAMF coverage for normal audio
+builds and check the null decoder in simulated audio builds. The test source
+is included once when either IAMF or simulated decoding is enabled.
+
+After building and validating the package, update the consuming image's custom
+`.deb` URL/version and checksum together. A Playwright dependency update alone
+does not update this package. In the consuming repository, CI should launch the
+image's configured Chromium executable through Playwright and compare its
+reported version with the installed `playwright-core/browsers.json` Chromium
+entry before running browser tests. That check must use the custom executable
+path used in production.
+
+This port is not a validated release until the focused tests, optimized package
+build, and packaged-browser smoke tests above have passed.
