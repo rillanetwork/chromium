@@ -23,12 +23,14 @@ TEST_FILTER = (
 DEV_ARGS = (
     'is_debug=true is_component_build=true symbol_level=0 '
     'proprietary_codecs=true ffmpeg_branding="Chrome" '
+    "enable_widevine=true bundle_widevine_cdm=false "
     "enable_simulated_video_decode=true enable_simulated_audio_decode=true"
 )
 RELEASE_ARGS = (
     "is_debug=false is_official_build=true is_component_build=false "
     "symbol_level=0 blink_symbol_level=0 proprietary_codecs=true "
-    'ffmpeg_branding="Chrome" enable_simulated_video_decode=true '
+    'ffmpeg_branding="Chrome" enable_widevine=true bundle_widevine_cdm=false '
+    "enable_simulated_video_decode=true "
     "enable_simulated_audio_decode=true "
     "enable_linux_installer=true"
 )

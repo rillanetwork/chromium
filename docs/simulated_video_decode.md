@@ -78,7 +78,7 @@ keeps its first build and link time manageable; increase it only when symbols
 are required.
 
 ```sh
-gn gen out/Simulated --args='is_debug=true is_component_build=true symbol_level=0 proprietary_codecs=true ffmpeg_branding="Chrome" enable_simulated_video_decode=true enable_simulated_audio_decode=true'
+gn gen out/Simulated --args='is_debug=true is_component_build=true symbol_level=0 proprietary_codecs=true ffmpeg_branding="Chrome" enable_widevine=true bundle_widevine_cdm=false enable_simulated_video_decode=true enable_simulated_audio_decode=true'
 autoninja -C out/Simulated chrome media_unittests
 ```
 
@@ -98,6 +98,12 @@ space reporting.
 The release configuration uses proprietary-codec parsing, Chrome's FFmpeg
 branding, the Linux installer, and the simulated decoder. It remains Chromium
 branded unless other branding arguments are supplied.
+
+Widevine EME is enabled, preserving the `150.0.7871.114-simulated.3` release
+configuration. The proprietary CDM is not bundled or redistributed; Chromium's
+component updater downloads it into the browser profile at runtime. First use
+can require a network connection and browser restart. The automated development
+and release configurations both enable this support.
 
 ### 1. Fetch revision-matched optimization profiles
 
@@ -126,7 +132,7 @@ for a narrowly configured local checkout.
 ### 2. Generate and build
 
 ```sh
-gn gen out/SimulatedDeb --args='is_debug=false is_official_build=true is_component_build=false symbol_level=0 blink_symbol_level=0 proprietary_codecs=true ffmpeg_branding="Chrome" enable_simulated_video_decode=true enable_simulated_audio_decode=true enable_linux_installer=true'
+gn gen out/SimulatedDeb --args='is_debug=false is_official_build=true is_component_build=false symbol_level=0 blink_symbol_level=0 proprietary_codecs=true ffmpeg_branding="Chrome" enable_widevine=true bundle_widevine_cdm=false enable_simulated_video_decode=true enable_simulated_audio_decode=true enable_linux_installer=true'
 autoninja -C out/SimulatedDeb chrome/installer/linux:unstable_deb
 ```
 
@@ -276,7 +282,7 @@ or older release can leave generated headers whose timestamps look current but
 whose declarations do not match the source checkout.
 
 ```sh
-gn gen out/Simulated-m<major> --args='is_debug=true is_component_build=true symbol_level=0 proprietary_codecs=true ffmpeg_branding="Chrome" enable_simulated_video_decode=true enable_simulated_audio_decode=true'
+gn gen out/Simulated-m<major> --args='is_debug=true is_component_build=true symbol_level=0 proprietary_codecs=true ffmpeg_branding="Chrome" enable_widevine=true bundle_widevine_cdm=false enable_simulated_video_decode=true enable_simulated_audio_decode=true'
 autoninja -C out/Simulated-m<major> media_unittests
 
 out/Simulated-m<major>/media_unittests \
@@ -297,7 +303,7 @@ python3 v8/tools/builtins-pgo/download_profiles.py download \
   --depot-tools third_party/depot_tools \
   --check-v8-revision --quiet
 
-gn gen out/SimulatedDeb-m<major> --args='is_debug=false is_official_build=true is_component_build=false symbol_level=0 blink_symbol_level=0 proprietary_codecs=true ffmpeg_branding="Chrome" enable_simulated_video_decode=true enable_simulated_audio_decode=true enable_linux_installer=true'
+gn gen out/SimulatedDeb-m<major> --args='is_debug=false is_official_build=true is_component_build=false symbol_level=0 blink_symbol_level=0 proprietary_codecs=true ffmpeg_branding="Chrome" enable_widevine=true bundle_widevine_cdm=false enable_simulated_video_decode=true enable_simulated_audio_decode=true enable_linux_installer=true'
 autoninja -C out/SimulatedDeb-m<major> chrome/installer/linux:unstable_deb
 ```
 
