@@ -349,13 +349,18 @@ The decoder-factory tests retain the upstream IAMF coverage for normal audio
 builds and check the null decoder in simulated audio builds. The test source
 is included once when either IAMF or simulated decoding is enabled.
 
-After building and validating the package, update the consuming image's custom
-`.deb` URL/version and checksum together. A Playwright dependency update alone
-does not update this package. In the consuming repository, CI should launch the
-image's configured Chromium executable through Playwright and compare its
-reported version with the installed `playwright-core/browsers.json` Chromium
-entry before running browser tests. That check must use the custom executable
-path used in production.
+Build and validate this branch using the existing release workflow:
+
+```sh
+python3 tools/rillanetwork/prepare_release.py 158.0.8127.18 \
+  --reuse-branch --source-ref 328e0eef6502d4257c947dfbbd66ced8acc9462e \
+  --source-base 150.0.7871.114
+```
+
+The source ref identifies the previous released patch stack for the release
+report; `--reuse-branch` builds the already ported M158 branch. Publish the
+resulting `.deb` and SHA-256 sidecar to GitHub Releases with the existing
+`publish_release.py` workflow above.
 
 This port is not a validated release until the focused tests, optimized package
 build, and packaged-browser smoke tests above have passed.
