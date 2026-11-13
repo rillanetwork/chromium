@@ -384,5 +384,21 @@ agreement. It also checks MP4, WebM, and WebCodecs capability reporting and
 plays both media fixtures through a seek to end-of-stream. A mismatched future
 Playwright update fails the version check before browser launch.
 
-This port is not a validated release until the focused tests, optimized package
-build, and packaged-browser smoke tests above have passed.
+### M158 validation
+
+Validated on 2026-11-13:
+
+- All 52 focused media tests pass, including the persisted null-audio ID check.
+- The official PGO Debian package builds with both simulated modes and Widevine
+  enabled; the proprietary CDM is not bundled.
+- Playwright 1.65.0 launches the extracted package and reports the exact expected
+  browser version, `158.0.8127.18`.
+- MP4 and WebM capability reporting, playback, seeking, dimensions, and EOS pass.
+- WebCodecs reports VP8 support with a hardware preference in the simulated build.
+- With component-updated Widevine 4.10.3112.0, EME access, MediaKeys creation,
+  and the public Shaka encrypted DASH sample pass. Playback advances beyond two
+  seconds with usable keys, 54 video frames, and zero dropped frames.
+- The same version guard rejects the previous M150 package as expected.
+
+The packaged binary's Build ID is
+`3d533b084ea53015a8c4e8f38567202d68355589`.
