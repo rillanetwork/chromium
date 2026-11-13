@@ -50,15 +50,23 @@ def pack_headless(src, output, artifact, cpu):
     return paths
 
 
-def provenance(src):
+def dependency_snapshot(src):
     dependencies = capture(['gclient', 'revinfo', '--actual'], src.parent)
     for line in dependencies.splitlines():
         relative, separator, _ = line.partition(': ')
         if not separator:
             continue
         dependency = inside(src.parent, relative)
-        if (dependency / '.git').exists() and git(dependency, 'status', '--porcelain', '--untracked-files=no'):
+        # DEPS can override a parent's gitlink. Each registered nested Git
+        # checkout is inspected separately, so ignore submodule dirt here.
+        if (dependency / '.git').exists() and git(dependency, 'status', '--porcelain',
+                                                 '--untracked-files=no', '--ignore-submodules=all'):
             raise ReleaseError(f'dirty dependency checkout: {relative}')
+    return dependencies
+
+
+def provenance(src):
+    dependencies = dependency_snapshot(src)
     profile_name = (src / 'chrome/build/linux.pgo.txt').read_text().strip()
     paths = [src / 'chrome/build/pgo_profiles' / profile_name,
              src / 'third_party/llvm-build/Release+Asserts/cr_build_revision',

@@ -170,6 +170,28 @@ class WorkflowTest(unittest.TestCase):
             with self.assertRaisesRegex(common.ReleaseError, 'dirty dependency checkout'):
                 build.provenance(self.src)
 
+    def test_nested_deps_revision_override_is_clean_but_local_edits_are_not(self):
+        child = self.src / 'vendor'
+        child.mkdir()
+        def child_git(*args):
+            return subprocess.check_output(['git', *args], cwd=child, text=True,
+                                           stderr=subprocess.DEVNULL).strip()
+        child_git('init', '-q')
+        (child / 'code').write_text('original')
+        child_git('add', 'code')
+        child_git('-c', 'commit.gpgsign=false', 'commit', '-qm', 'original')
+        old = child_git('rev-parse', 'HEAD')
+        self.git('update-index', '--add', '--cacheinfo', f'160000,{old},vendor')
+        self.git('commit', '-qm', 'parent pins original child')
+        (child / 'code').write_text('DEPS-pinned update')
+        child_git('commit', '-qam', 'new child')
+        revisions = 'src: https://example.invalid/src@sha\nsrc/vendor: https://example.invalid/vendor@sha'
+        with mock.patch.object(build, 'capture', return_value=revisions):
+            self.assertEqual(build.dependency_snapshot(self.src), revisions)
+            (child / 'code').write_text('uncommitted child edit')
+            with self.assertRaisesRegex(common.ReleaseError, 'dirty dependency checkout: src/vendor'):
+                build.dependency_snapshot(self.src)
+
     def record(self):
         prepare.prepare(self.src, self.manifest)
         record = self.root / 'dist/build.json'
