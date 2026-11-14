@@ -20,6 +20,29 @@ import validate
 
 
 class WorkflowTest(unittest.TestCase):
+    def test_managed_sysroot_survives_legacy_installation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            src = Path(temporary)
+            linux = src / 'build/linux'
+            (linux / 'sysroot_scripts').mkdir(parents=True)
+            spec = {'SysrootDir': 'sysroot', 'Sha256Sum': 'pinned'}
+            (linux / 'sysroot_scripts/sysroots.json').write_text(json.dumps({'bullseye_amd64': spec}))
+            sysroot = linux / 'sysroot'
+            (sysroot / 'usr/include').mkdir(parents=True)
+            for name, content in [('.pinned', 'archive'), ('.pinned_hash', 'pinned\n'),
+                                  ('.pinned_is_first_class_gcs', '1')]:
+                (sysroot / name).write_text(content)
+            with mock.patch.object(build, 'run') as command:
+                build.install_sysroot(src, 'x64')
+                command.assert_not_called()
+                (sysroot / '.pinned_hash').write_text('different')
+                with self.assertRaises(common.ReleaseError):
+                    build.install_sysroot(src, 'x64')
+                command.assert_not_called()
+                (sysroot / '.pinned_is_first_class_gcs').unlink()
+                build.install_sysroot(src, 'x64')
+                command.assert_called_once()
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Build both deliverables and record their exact inputs; validation is separate."""
 import argparse
+import json
 from pathlib import Path
 import shutil
 import tarfile
@@ -13,6 +14,26 @@ from common import (ARCH, ROOT, ReleaseError, capture, checkout_lock, git, insid
 def output_dirs(src, m, cpu):
     root = src / 'out' / f"Rilla-{release_id(m)}-{cpu}-{m['expected_tree'][:12]}"
     return root / 'test', root / 'release'
+
+
+def install_sysroot(src, cpu):
+    # Modern DEPS installs some sysroots as first-class GCS dependencies.
+    # The legacy installer removes their metadata, after which even revinfo
+    # clobbers the directory while parsing DEPS. Preserve gclient ownership.
+    linux = src / 'build/linux'
+    spec = json.loads((linux / 'sysroot_scripts/sysroots.json').read_text())['bullseye_' + ARCH[cpu]]
+    sysroot = linux / spec['SysrootDir']
+    prefix = sysroot / ('.' + spec['Sha256Sum'])
+    marker = Path(str(prefix) + '_is_first_class_gcs')
+    if marker.is_file():
+        recorded_hash = Path(str(prefix) + '_hash')
+        if (not prefix.is_file() or not recorded_hash.is_file()
+                or recorded_hash.read_text().strip() != spec['Sha256Sum']
+                or not (sysroot / 'usr/include').is_dir()):
+            raise ReleaseError('incomplete gclient-managed sysroot; rerun gclient sync')
+        print(f'Using gclient-managed sysroot: {sysroot}', flush=True)
+        return
+    run(['python3', 'build/linux/sysroot_scripts/install-sysroot.py', f'--arch={ARCH[cpu]}'], src)
 
 
 def check_deb(artifact, m, cpu):
@@ -105,7 +126,7 @@ def build(src, manifest, cpu, jobs, *, dry_run=False):
             (dist / name).unlink(missing_ok=True)
         run(['gclient', 'sync'], src.parent)
         verify_prepared(src, manifest, m)
-        run(['python3', 'build/linux/sysroot_scripts/install-sysroot.py', f'--arch={ARCH[cpu]}'], src)
+        install_sysroot(src, cpu)
         run(['python3', 'tools/update_pgo_profiles.py', '--target=linux', 'update',
              '--gs-url-base=chromium-optimization-profiles/pgo_profiles'], src)
         run(['python3', 'v8/tools/builtins-pgo/download_profiles.py', 'download',
